@@ -440,3 +440,291 @@ class TestAnalyzeQuality:
         report = analyze_quality(gray)
         assert report["resolution"]["width"] == 800
         assert report["resolution"]["height"] == 600
+
+
+# ===========================================================================
+# Phase 05 — Selective Image Processing Tests
+# ===========================================================================
+
+from scanner.preprocessing.processor import (
+    enhance_contrast,
+    sharpen,
+    denoise,
+    upscale,
+    to_grayscale,
+    selective_process,
+    prepare_variants,
+)
+
+
+# ---------------------------------------------------------------------------
+# Tests: enhance_contrast
+# ---------------------------------------------------------------------------
+
+class TestEnhanceContrast:
+    def test_returns_pil_image(self):
+        img = _make_low_contrast_image()
+        result = enhance_contrast(img)
+        assert isinstance(result, Image.Image)
+
+    def test_improves_contrast(self):
+        """Contrast (std dev) should increase after enhancement."""
+        img = _make_low_contrast_image()
+        result = enhance_contrast(img)
+        original_std = float(np.std(np.array(img.convert("L"))))
+        enhanced_std = float(np.std(np.array(result.convert("L"))))
+        assert enhanced_std > original_std
+
+    def test_accepts_numpy_array(self):
+        arr = np.full((600, 800, 3), 128, dtype=np.uint8)
+        result = enhance_contrast(arr)
+        assert isinstance(result, Image.Image)
+
+    def test_handles_grayscale_input(self):
+        gray = np.full((600, 800), 128, dtype=np.uint8)
+        result = enhance_contrast(gray)
+        assert isinstance(result, Image.Image)
+
+
+# ---------------------------------------------------------------------------
+# Tests: sharpen
+# ---------------------------------------------------------------------------
+
+class TestSharpen:
+    def test_returns_pil_image(self):
+        img = _make_blurry_image()
+        result = sharpen(img)
+        assert isinstance(result, Image.Image)
+
+    def test_increases_sharpness(self):
+        """Laplacian variance should increase after sharpening."""
+        img = _make_blurry_image()
+        result = sharpen(img)
+        original_lap = float(cv2.Laplacian(np.array(img.convert("L")), cv2.CV_64F).var())
+        sharp_lap = float(cv2.Laplacian(np.array(result.convert("L")), cv2.CV_64F).var())
+        assert sharp_lap > original_lap
+
+    def test_accepts_numpy_array(self):
+        arr = np.full((600, 800, 3), 128, dtype=np.uint8)
+        result = sharpen(arr)
+        assert isinstance(result, Image.Image)
+
+
+# ---------------------------------------------------------------------------
+# Tests: denoise
+# ---------------------------------------------------------------------------
+
+class TestDenoise:
+    def test_returns_pil_image(self):
+        img = _make_clean_image()
+        result = denoise(img)
+        assert isinstance(result, Image.Image)
+
+    def test_reduces_noise(self):
+        """Denoising a noisy image should reduce high-frequency energy."""
+        # Create a noisy image
+        rng = np.random.default_rng(42)
+        base = np.full((600, 800, 3), 128, dtype=np.uint8)
+        noise = rng.integers(-40, 40, base.shape, dtype=np.int16)
+        noisy = np.clip(base.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+        noisy_img = Image.fromarray(noisy)
+
+        result = denoise(noisy_img)
+
+        # Measure noise via Laplacian median
+        gray_before = np.array(noisy_img.convert("L"))
+        gray_after = np.array(result.convert("L"))
+        noise_before = float(np.median(np.abs(cv2.Laplacian(gray_before, cv2.CV_64F))))
+        noise_after = float(np.median(np.abs(cv2.Laplacian(gray_after, cv2.CV_64F))))
+        assert noise_after < noise_before
+
+    def test_handles_grayscale_input(self):
+        gray = np.full((600, 800), 128, dtype=np.uint8)
+        result = denoise(gray)
+        assert isinstance(result, Image.Image)
+
+
+# ---------------------------------------------------------------------------
+# Tests: upscale
+# ---------------------------------------------------------------------------
+
+class TestUpscale:
+    def test_small_image_gets_upscaled(self):
+        img = Image.new("RGB", (200, 150), (128, 128, 128))
+        result = upscale(img)
+        w, h = result.size
+        assert min(w, h) >= 1000
+
+    def test_large_image_unchanged(self):
+        img = Image.new("RGB", (1200, 1000), (128, 128, 128))
+        result = upscale(img)
+        assert result.size == (1200, 1000)
+
+    def test_custom_target_min(self):
+        img = Image.new("RGB", (200, 150), (128, 128, 128))
+        result = upscale(img, target_min=500)
+        w, h = result.size
+        assert min(w, h) >= 500
+
+    def test_returns_pil_image(self):
+        img = Image.new("RGB", (100, 100))
+        result = upscale(img)
+        assert isinstance(result, Image.Image)
+
+    def test_accepts_numpy_array(self):
+        arr = np.full((150, 200, 3), 128, dtype=np.uint8)
+        result = upscale(arr)
+        assert isinstance(result, Image.Image)
+        assert min(result.size) >= 1000
+
+
+# ---------------------------------------------------------------------------
+# Tests: to_grayscale
+# ---------------------------------------------------------------------------
+
+class TestToGrayscale:
+    def test_returns_grayscale(self):
+        img = _make_clean_image()
+        result = to_grayscale(img)
+        assert isinstance(result, Image.Image)
+        assert result.mode == "L"
+
+    def test_accepts_numpy_array(self):
+        arr = np.full((100, 100, 3), 128, dtype=np.uint8)
+        result = to_grayscale(arr)
+        assert result.mode == "L"
+
+    def test_already_grayscale(self):
+        img = Image.new("L", (100, 100), 128)
+        result = to_grayscale(img)
+        assert result.mode == "L"
+
+
+# ---------------------------------------------------------------------------
+# Tests: selective_process
+# ---------------------------------------------------------------------------
+
+class TestSelectiveProcess:
+    def test_clean_image_only_gets_grayscale(self):
+        """A clean image should pass through with only grayscale applied."""
+        img = _make_clean_image()
+        report = analyze_quality(img)
+        # Verify no issues flagged
+        assert report["overall_quality"] == "good"
+
+        result = selective_process(img, report)
+        assert isinstance(result, Image.Image)
+        assert result.mode == "L"
+        # Dimensions should be unchanged (no upscale needed)
+        assert result.size == img.size
+
+    def test_blurry_image_gets_sharpened(self):
+        """A blurry image should be sharpened."""
+        img = _make_blurry_image()
+        report = analyze_quality(img)
+        assert report["blur"]["issue"] is True
+
+        result = selective_process(img, report)
+        assert isinstance(result, Image.Image)
+        # Sharpness should improve (higher Laplacian variance)
+        original_lap = float(cv2.Laplacian(np.array(img.convert("L")), cv2.CV_64F).var())
+        result_lap = float(cv2.Laplacian(np.array(result), cv2.CV_64F).var())
+        assert result_lap > original_lap
+
+    def test_low_contrast_gets_enhanced(self):
+        """A low-contrast image should get contrast enhancement."""
+        img = _make_low_contrast_image()
+        report = analyze_quality(img)
+        assert report["contrast"]["issue"] is True
+
+        result = selective_process(img, report)
+        assert isinstance(result, Image.Image)
+        # Std dev should increase
+        original_std = float(np.std(np.array(img.convert("L"))))
+        result_std = float(np.std(np.array(result)))
+        assert result_std > original_std
+
+    def test_low_res_gets_upscaled(self):
+        """A low-resolution image should be upscaled."""
+        img = _make_low_res_image()
+        report = analyze_quality(img)
+        assert report["resolution"]["issue"] is True
+
+        result = selective_process(img, report)
+        assert min(result.size) >= 1000
+
+    def test_does_not_sharpen_sharp_image(self):
+        """selective_process should NOT sharpen an already-sharp image."""
+        img = _make_clean_image()
+        report = analyze_quality(img)
+        assert report["blur"]["issue"] is False
+
+        # Manually track: convert to grayscale only (no sharpen)
+        result = selective_process(img, report)
+        # The result should be just grayscale of the original, no sharpening
+        gray_original = np.array(img.convert("L"))
+        gray_result = np.array(result)
+        # They should be very similar (identical since no transforms applied except grayscale)
+        diff = np.mean(np.abs(gray_original.astype(float) - gray_result.astype(float)))
+        assert diff < 1.0  # Essentially identical
+
+    def test_accepts_numpy_input(self):
+        arr = np.full((600, 800, 3), 128, dtype=np.uint8)
+        arr[100:105, 100:700] = 0
+        report = analyze_quality(arr)
+        result = selective_process(arr, report)
+        assert isinstance(result, Image.Image)
+
+
+# ---------------------------------------------------------------------------
+# Tests: prepare_variants
+# ---------------------------------------------------------------------------
+
+class TestPrepareVariants:
+    def test_returns_correct_structure(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert isinstance(result, dict)
+        assert "original" in result
+        assert "preprocessed" in result
+        assert "quality_report" in result
+
+    def test_original_is_pil_image(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert isinstance(result["original"], Image.Image)
+
+    def test_preprocessed_is_pil_image(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert isinstance(result["preprocessed"], Image.Image)
+
+    def test_preprocessed_is_grayscale(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert result["preprocessed"].mode == "L"
+
+    def test_quality_report_is_dict(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        report = result["quality_report"]
+        assert isinstance(report, dict)
+        assert "overall_quality" in report
+        assert "issues" in report
+
+    def test_accepts_numpy_array(self):
+        arr = np.array(_make_clean_image())
+        result = prepare_variants(arr)
+        assert isinstance(result["original"], Image.Image)
+        assert isinstance(result["preprocessed"], Image.Image)
+
+    def test_accepts_pil_image(self):
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert isinstance(result["original"], Image.Image)
+
+    def test_original_preserves_color(self):
+        """The original variant should remain in color (RGB)."""
+        img = _make_clean_image()
+        result = prepare_variants(img)
+        assert result["original"].mode == "RGB"
