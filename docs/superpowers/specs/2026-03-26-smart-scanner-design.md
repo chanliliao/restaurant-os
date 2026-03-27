@@ -559,7 +559,14 @@ Phase 10:  [x] Complete — Mathematical cross-validation
   - Debug mode includes validation errors in scan_metadata
   - 208 total passing tests (188 existing + 20 new validator tests)
   - Files: scanner/scanning/validator.py, scanner/scanning/engine.py, scanner/scanning/__init__.py, tests/test_validator.py
-Phase 11:  [ ] Not started — Memory interfaces + JSON storage
+Phase 11:  [x] Complete  — Memory interfaces + JSON storage
+  - Abstract interfaces: SupplierMemory (get_profile, save_scan, infer_missing, get/update_layout), GeneralMemory (get_industry_profile, get_item_catalog, update_from_scan)
+  - JSON implementations: JsonSupplierMemory (per-supplier dirs with profile.json/layout.json), JsonGeneralMemory (industry_profile.json/item_catalog.json)
+  - Supplier ID normalization with path traversal protection (rejects .., /, \)
+  - Thread-safe atomic writes via temp-file + os.replace, graceful corrupt/missing file handling
+  - Running price averages for item history, supplier index auto-maintenance
+  - 246 total passing tests (208 existing + 38 new memory tests)
+  - Files: scanner/memory/interface.py, scanner/memory/json_store.py, scanner/memory/__init__.py, tests/test_memory.py
 Phase 12:  [ ] Not started — Three-tier inference system
 Phase 13:  [ ] Not started — Editable result form UI (React)
 Phase 14:  [ ] Not started — Memory learning from user corrections
