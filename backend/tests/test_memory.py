@@ -46,7 +46,7 @@ class TestNormalizeSupplierID:
         assert normalize_supplier_id("ACME") == "acme"
 
     def test_multiple_spaces(self):
-        assert normalize_supplier_id("Big  Apple  Produce") == "big--apple--produce"
+        assert normalize_supplier_id("Big  Apple  Produce") == "big-apple-produce"
 
     def test_empty_string_raises(self):
         with pytest.raises(ValueError, match="cannot be empty"):
@@ -81,7 +81,7 @@ class TestJsonSupplierMemoryProfile:
         profile = supplier_mem.get_profile("sysco-foods")
         assert profile["supplier_id"] == "sysco-foods"
         assert profile["scan_count"] == 0
-        assert profile["common_values"] == {}
+        assert profile["latest_values"] == {}
         assert profile["item_history"] == {}
         assert profile["corrections"] == []
 
@@ -97,8 +97,8 @@ class TestJsonSupplierMemoryProfile:
 
         profile = supplier_mem.get_profile("sysco-foods")
         assert profile["scan_count"] == 1
-        assert profile["common_values"]["supplier"] == "Sysco Foods"
-        assert profile["common_values"]["tax_rate"] == 0.08
+        assert profile["latest_values"]["supplier"] == "Sysco Foods"
+        assert profile["latest_values"]["tax_rate"] == 0.08
         assert "Chicken Breast" in profile["item_history"]
         assert profile["item_history"]["Chicken Breast"]["avg_price"] == 4.99
         assert profile["item_history"]["Chicken Breast"]["common_unit"] == "lb"
@@ -337,4 +337,4 @@ class TestCorruptFiles:
         supplier_mem.save_scan("bad", {"supplier": "Bad Corp", "items": []})
         profile = supplier_mem.get_profile("bad")
         assert profile["scan_count"] == 1
-        assert profile["common_values"]["supplier"] == "Bad Corp"
+        assert profile["latest_values"]["supplier"] == "Bad Corp"

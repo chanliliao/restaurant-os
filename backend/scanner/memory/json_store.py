@@ -5,7 +5,6 @@ import os
 import re
 import tempfile
 import threading
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,9 @@ from django.conf import settings
 
 from .interface import GeneralMemory, SupplierMemory
 
-# Module-level lock for thread-safe file operations
+# Module-level lock for thread-safe file operations within a single process.
+# NOTE: This does not protect against multi-process concurrency (e.g., Gunicorn
+# workers). For production, switch to SQLite or use OS-level file locks.
 _file_lock = threading.Lock()
 
 
@@ -35,6 +36,7 @@ def normalize_supplier_id(name: str) -> str:
     normalized = name.lower().strip()
     normalized = normalized.replace(" ", "-")
     normalized = re.sub(r"[^a-z0-9\-]", "", normalized)
+    normalized = re.sub(r"-+", "-", normalized).strip("-")
 
     # After stripping, must still have content
     if not normalized:
@@ -120,7 +122,7 @@ class JsonSupplierMemory(SupplierMemory):
             "supplier_id": supplier_id,
             "name": name or supplier_id,
             "scan_count": 0,
-            "common_values": {},
+            "latest_values": {},
             "item_history": {},
             "corrections": [],
         }
@@ -147,12 +149,12 @@ class JsonSupplierMemory(SupplierMemory):
             # Increment scan count
             profile["scan_count"] = profile.get("scan_count", 0) + 1
 
-            # Update common_values with top-level scan fields
-            common_values = profile.get("common_values", {})
+            # Update latest_values with top-level scan fields
+            latest_values = profile.get("latest_values", {})
             for field in ("supplier", "tax_rate", "invoice_number", "date"):
                 if field in scan_data and scan_data[field] is not None:
-                    common_values[field] = scan_data[field]
-            profile["common_values"] = common_values
+                    latest_values[field] = scan_data[field]
+            profile["latest_values"] = latest_values
 
             # Update item_history with running averages
             item_history = profile.get("item_history", {})
@@ -215,10 +217,10 @@ class JsonSupplierMemory(SupplierMemory):
         if not profile:
             return None
 
-        # Check common_values first
-        common_values = profile.get("common_values", {})
-        if field in common_values:
-            return common_values[field]
+        # Check latest_values first
+        latest_values = profile.get("latest_values", {})
+        if field in latest_values:
+            return latest_values[field]
 
         return None
 
