@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data directory (persistent storage, not code)
+backend/data/general/*.json
+backend/data/suppliers/
+backend/data/stats/*.json
+!backend/data/general/.gitkeep
+!backend/data/suppliers/.gitkeep
+!backend/data/stats/.gitkeep
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug/temp
+*.tmp
+temp/
