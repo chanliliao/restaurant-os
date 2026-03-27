@@ -25,7 +25,7 @@ def build_scan_prompt(ocr_text: str = "") -> str:
             "Use it as supplementary data to cross-reference with what you see "
             "in the images. The OCR may contain errors — trust the images as the "
             "primary source.\n\n"
-            f"```\n{ocr_text.strip()}\n```"
+            f"```\n{ocr_text.strip().replace('```', '---')}\n```"
         )
 
     prompt = f"""You are an expert invoice data extraction system for restaurant suppliers.

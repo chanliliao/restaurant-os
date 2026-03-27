@@ -35,17 +35,6 @@ def _encode_image_base64(pil_image: Image.Image, fmt: str = "PNG") -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-def _get_media_type(fmt: str = "PNG") -> str:
-    """Return the MIME type for an image format string."""
-    mapping = {
-        "PNG": "image/png",
-        "JPEG": "image/jpeg",
-        "JPG": "image/jpeg",
-        "WEBP": "image/webp",
-        "GIF": "image/gif",
-    }
-    return mapping.get(fmt.upper(), "image/png")
-
 
 def _call_claude(prompt: str, images: list[dict], model: str) -> str:
     """
@@ -112,11 +101,12 @@ def _parse_json_response(text: str) -> dict:
     # Strip markdown code fences if present
     if cleaned.startswith("```"):
         # Remove opening fence (with optional language tag)
-        first_newline = cleaned.index("\n")
-        cleaned = cleaned[first_newline + 1:]
-        # Remove closing fence
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3].strip()
+        first_newline = cleaned.find("\n")
+        if first_newline != -1:
+            cleaned = cleaned[first_newline + 1:]
+            # Remove closing fence
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
 
     return json.loads(cleaned)
 
