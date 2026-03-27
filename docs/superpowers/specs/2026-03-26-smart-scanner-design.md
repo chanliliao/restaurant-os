@@ -405,14 +405,22 @@ SmartScanner/
 
 Each phase is a small, independent feature. Build it, test it, verify it works, then move on. Each phase starts in a **fresh context window** so the agent has clean context and reads the latest state of the codebase and this plan.
 
+### GitHub Repository
+**Repo:** https://github.com/chanliliao/SmartScanner
+**Remote:** origin (master branch)
+
 ### Workflow Per Phase
 1. Open fresh context window
 2. Read this spec + the implementation tracker (below)
 3. Build the phase's feature
 4. Write tests and verify it works
 5. Commit with clear message describing what was built
-6. Update the implementation tracker (below) with: what was done, files created/modified, test results, any deviations from plan
-7. Close context window
+6. **Push to GitHub** (`git push origin master`)
+7. Update the implementation tracker (below) with: what was done, files created/modified, test results, any deviations from plan
+8. Commit and **push** the tracker update to GitHub
+9. Close context window
+
+**Every phase MUST end with code pushed to GitHub.** No exceptions.
 
 ### Implementation Tracker
 
