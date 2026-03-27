@@ -267,3 +267,176 @@ class TestHelpers:
     def test_to_cv_invalid_type_raises(self):
         with pytest.raises(TypeError):
             _to_cv("not an image")
+
+
+# ===========================================================================
+# Phase 04 — Quality Assessment Tests
+# ===========================================================================
+
+from scanner.preprocessing.analyzer import analyze_quality
+
+
+# ---------------------------------------------------------------------------
+# Helpers to create quality-specific test images
+# ---------------------------------------------------------------------------
+
+def _make_dark_image(width=800, height=600):
+    """Create a uniformly dark image (mean ~40)."""
+    return Image.fromarray(np.full((height, width, 3), 40, dtype=np.uint8))
+
+
+def _make_washed_out_image(width=800, height=600):
+    """Create a uniformly bright / washed-out image (mean ~220)."""
+    return Image.fromarray(np.full((height, width, 3), 220, dtype=np.uint8))
+
+
+def _make_low_contrast_image(width=800, height=600):
+    """Create an image with very narrow pixel range (low std dev)."""
+    arr = np.random.randint(120, 135, (height, width, 3), dtype=np.uint8)
+    return Image.fromarray(arr)
+
+
+def _make_blurry_image(width=800, height=600):
+    """Create a sharp pattern then blur it heavily so Laplacian variance is low."""
+    # Start with a sharp checkerboard-like pattern
+    arr = np.zeros((height, width), dtype=np.uint8)
+    arr[::2, ::2] = 255
+    arr[1::2, 1::2] = 255
+    # Apply heavy Gaussian blur
+    blurred = cv2.GaussianBlur(arr, (31, 31), 15)
+    return Image.fromarray(blurred)
+
+
+def _make_low_res_image():
+    """Create a 200x150 image (below the 500px threshold)."""
+    return Image.new("RGB", (200, 150), (128, 128, 128))
+
+
+def _make_clean_image(width=800, height=600):
+    """Create a clean, sharp, well-lit image with good contrast and texture."""
+    img = Image.new("RGB", (width, height), (200, 200, 200))
+    arr = np.array(img)
+    # Draw sharp black horizontal lines (simulating receipt text)
+    for y in range(30, height - 30, 12):
+        arr[y : y + 2, 60 : width - 60] = 0
+    # Add vertical lines for grid-like texture (more edges for Laplacian)
+    for x in range(60, width - 60, 40):
+        arr[30 : height - 30, x : x + 2] = 0
+    # Add some mid-gray blocks for varied contrast
+    for y in range(50, height - 80, 50):
+        for x in range(80, width - 80, 80):
+            arr[y : y + 10, x : x + 30] = 80
+    return Image.fromarray(arr)
+
+
+# ---------------------------------------------------------------------------
+# Tests: analyze_quality
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeQuality:
+
+    def test_dark_image_flags_brightness(self):
+        """A uniformly dark image should flag brightness as an issue."""
+        img = _make_dark_image()
+        report = analyze_quality(img)
+        assert report["brightness"]["issue"] is True
+        assert report["brightness"]["value"] < 80
+        assert "dark" in report["brightness"]["detail"].lower()
+
+    def test_washed_out_image_flags_brightness(self):
+        """A uniformly bright image should flag brightness as washed out."""
+        img = _make_washed_out_image()
+        report = analyze_quality(img)
+        assert report["brightness"]["issue"] is True
+        assert report["brightness"]["value"] > 200
+        assert "washed" in report["brightness"]["detail"].lower()
+
+    def test_low_contrast_image_flags_contrast(self):
+        """An image with narrow pixel range should flag low contrast."""
+        img = _make_low_contrast_image()
+        report = analyze_quality(img)
+        assert report["contrast"]["issue"] is True
+        assert report["contrast"]["value"] < 30
+
+    def test_blurry_image_flags_blur(self):
+        """A heavily blurred image should flag blur."""
+        img = _make_blurry_image()
+        report = analyze_quality(img)
+        assert report["blur"]["issue"] is True
+        assert report["blur"]["value"] < 100
+
+    def test_low_res_image_flags_resolution(self):
+        """A 200x150 image should flag resolution."""
+        img = _make_low_res_image()
+        report = analyze_quality(img)
+        assert report["resolution"]["issue"] is True
+        assert report["resolution"]["width"] == 200
+        assert report["resolution"]["height"] == 150
+
+    def test_clean_image_no_issues(self):
+        """A clean, well-lit, sharp, high-res image should report no issues."""
+        img = _make_clean_image()
+        report = analyze_quality(img)
+        assert report["overall_quality"] == "good"
+        assert len(report["issues"]) == 0
+        assert report["brightness"]["issue"] is False
+        assert report["contrast"]["issue"] is False
+        assert report["blur"]["issue"] is False
+        assert report["noise"]["issue"] is False
+        assert report["resolution"]["issue"] is False
+
+    def test_accepts_numpy_array(self):
+        """analyze_quality should accept a numpy ndarray."""
+        arr = np.full((600, 800, 3), 128, dtype=np.uint8)
+        # Draw some features for contrast/sharpness
+        arr[100:105, 100:700] = 0
+        report = analyze_quality(arr)
+        assert "brightness" in report
+        assert "overall_quality" in report
+
+    def test_accepts_pil_image(self):
+        """analyze_quality should accept a PIL Image."""
+        img = _make_clean_image()
+        report = analyze_quality(img)
+        assert isinstance(report, dict)
+
+    def test_overall_quality_poor_with_multiple_issues(self):
+        """An image with 2+ issues should be classified as 'poor'."""
+        # Dark + low-res => at least 2 issues
+        img = Image.fromarray(np.full((150, 200, 3), 40, dtype=np.uint8))
+        report = analyze_quality(img)
+        assert report["overall_quality"] == "poor"
+        assert len(report["issues"]) >= 2
+
+    def test_overall_quality_fair_with_single_issue(self):
+        """An image with exactly 1 issue should be classified as 'fair'."""
+        # Low-res only (brightness, contrast, blur, noise should be fine)
+        img = _make_clean_image(width=400, height=400)
+        report = analyze_quality(img)
+        # Resolution is the only issue (400 < 500)
+        assert report["resolution"]["issue"] is True
+        assert report["overall_quality"] == "fair"
+
+    def test_report_structure(self):
+        """Verify the returned dict has all expected keys."""
+        img = _make_clean_image()
+        report = analyze_quality(img)
+        assert set(report.keys()) == {
+            "brightness", "contrast", "blur", "noise",
+            "resolution", "overall_quality", "issues",
+        }
+        # Check sub-keys
+        for metric in ["brightness", "contrast", "blur", "noise"]:
+            assert "value" in report[metric]
+            assert "issue" in report[metric]
+            assert "detail" in report[metric]
+        assert "width" in report["resolution"]
+        assert "height" in report["resolution"]
+
+    def test_accepts_grayscale_array(self):
+        """analyze_quality should handle a 2D grayscale numpy array."""
+        gray = np.full((600, 800), 128, dtype=np.uint8)
+        gray[100:105, 100:700] = 0
+        report = analyze_quality(gray)
+        assert report["resolution"]["width"] == 800
+        assert report["resolution"]["height"] == 600
