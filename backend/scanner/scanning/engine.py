@@ -246,7 +246,9 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         sonnet_count = sum(1 for m in models_used if m == SONNET)
         opus_count = sum(1 for m in models_used if m == OPUS)
 
-        result["scan_metadata"] = {
+        # Preserve any metadata added by inference before merging
+        existing_metadata = result.get("scan_metadata", {})
+        existing_metadata.update({
             "mode": mode,
             "scan_passes": api_calls,
             "scans_performed": api_calls,
@@ -258,7 +260,8 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
                 "opus": opus_count,
             },
             "models_used": models_used,
-        }
+        })
+        result["scan_metadata"] = existing_metadata
 
         if debug:
             result["scan_metadata"]["debug"] = {
