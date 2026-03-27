@@ -506,7 +506,15 @@ Phase 04:  [x] Complete — Quality assessment
   - 34 total passing tests (22 orientation + 12 analyzer)
   - Security: no file I/O, no shell commands, all in-memory processing
   - Files: scanner/preprocessing/analyzer.py, tests/test_preprocessing.py
-Phase 05:  [ ] Not started — Selective image processing
+Phase 05:  [x] Complete — Selective image processing
+  - enhance_contrast (CLAHE), sharpen (unsharp mask), denoise (NLMeans), upscale (Lanczos), to_grayscale
+  - selective_process applies only needed transforms based on quality report flags
+  - prepare_variants orchestrates: auto_orient -> analyze_quality -> selective_process -> returns {original, preprocessed, quality_report}
+  - Processing order: upscale -> denoise -> enhance_contrast -> sharpen -> grayscale
+  - Accepts both PIL Image and numpy array inputs
+  - 66 total passing tests (22 orientation + 12 analyzer + 32 processor)
+  - Security: no file I/O, no shell commands, all in-memory processing
+  - Files: scanner/preprocessing/processor.py, tests/test_preprocessing.py
 Phase 06:  [ ] Not started — ROI segmentation
 Phase 07:  [ ] Not started — OCR pre-pass
 Phase 08:  [ ] Not started — Single scan with Claude
