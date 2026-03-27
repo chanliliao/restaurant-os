@@ -23,6 +23,7 @@ from scanner.scanning.prompts import (
     build_tiebreaker_prompt,
 )
 from scanner.scanning.comparator import compare_scans, merge_results
+from scanner.scanning.validator import validate_math, auto_correct
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,13 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         # Step 6: Merge results
         result = merge_results(scan1, scan2, tiebreaker_result, comparison=comparison)
 
+        # Step 6b: Mathematical cross-validation
+        validation = validate_math(result)
+        math_validation_triggered = False
+        if not validation["valid"]:
+            result = auto_correct(result, validation["errors"])
+            math_validation_triggered = True
+
         # Step 7: Attach scan metadata
         elapsed = time.time() - start_time
         sonnet_count = sum(1 for m in models_used if m == SONNET)
@@ -229,7 +237,7 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             "scans_performed": api_calls,
             "tiebreaker_triggered": tiebreaker_triggered,
             "agreement_ratio": agreement_ratio,
-            "math_validation_triggered": False,
+            "math_validation_triggered": math_validation_triggered,
             "api_calls": {
                 "sonnet": sonnet_count,
                 "opus": opus_count,
@@ -249,6 +257,11 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
                     "disagreed_fields": list(comparison["disagreed"].keys()),
                     "agreed_items": len(comparison["items_comparison"]["agreed"]),
                     "disagreed_items": len(comparison["items_comparison"]["disagreed"]),
+                },
+                "math_validation": {
+                    "valid": validation["valid"],
+                    "errors": validation["errors"],
+                    "corrections_applied": math_validation_triggered,
                 },
             }
 
