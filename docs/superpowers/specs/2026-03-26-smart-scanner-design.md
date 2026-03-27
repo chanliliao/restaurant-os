@@ -490,7 +490,14 @@ Phase 02b: [x] Complete — Scan controls UI (mode dropdown + debug toggle)
   - Controls wired into App state -> DropZone -> API call sends mode parameter
   - Backend already accepts and echoes mode parameter (no backend changes needed)
   - Files: src/components/ScanControls.tsx
-Phase 03:  [ ] Not started — Orientation & skew correction
+Phase 03:  [x] Complete — Orientation & skew correction
+  - fix_orientation: EXIF-based auto-rotation (90/180/270 + flip/transpose)
+  - deskew: Hough line transform detects tilt angle, rotates to straighten
+  - correct_perspective: contour-based quadrilateral detection + perspective warp
+  - auto_orient: orchestrator running all three in sequence
+  - All functions accept both PIL Image and numpy array inputs
+  - 22 passing tests with programmatically generated fixtures
+  - Files: scanner/preprocessing/orientation.py, tests/test_preprocessing.py
 Phase 04:  [ ] Not started — Quality assessment
 Phase 05:  [ ] Not started — Selective image processing
 Phase 06:  [ ] Not started — ROI segmentation
