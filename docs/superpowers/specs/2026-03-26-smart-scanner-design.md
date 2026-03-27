@@ -2,7 +2,17 @@
 
 ## Overview
 
-SmartScanner is a Django-based web application that uses Claude Opus to extract structured data from restaurant receipt and invoice images. It features intelligent image preprocessing, a three-pass scanning pipeline with tiebreaker logic, and a supplier memory system that learns patterns over time to infer missing data.
+SmartScanner is a Django-based web application that uses Claude AI to extract structured data from restaurant receipt and invoice images. It is a specialty invoice scanning agent featuring:
+
+- Intelligent image preprocessing with auto-detect quality correction
+- Region-of-interest segmentation with supplier-aware layout mapping
+- Three-pass scanning pipeline with tiebreaker logic
+- Three scan modes (Light/Normal/Heavy) for cost vs accuracy control
+- Three-tier memory system (supplier-specific → general industry → AI reasoning)
+- Confidence scoring (0-100) per field
+- User feedback loop — corrections immediately improve memory
+- Accuracy and API usage tracking per scan and per mode
+- Auto-categorization of errors (misread, missing, hallucinated)
 
 ## Architecture
 
@@ -11,7 +21,7 @@ Monolithic Django application. All processing happens in-process. Designed with 
 **Tech Stack:**
 - Python 3.11+
 - Django 5.x
-- Anthropic Python SDK (Claude Opus for scanning)
+- Anthropic Python SDK (Claude Opus + Sonnet for scanning)
 - Pillow + OpenCV for image preprocessing
 - Tesseract OCR (pytesseract) for complementary text extraction
 - JSON files for storage (prototype), SQLite for production
@@ -51,6 +61,9 @@ Both variants are sent to Claude in the same message so the model can cross-refe
 
 The original uploaded image is always preserved separately.
 
+### Debug Mode
+Optional toggle in the UI. When enabled, saves each preprocessing stage to a temp folder (original, orientation-corrected, preprocessed, ROI crops) viewable in the UI for debugging why a scan went wrong.
+
 ## 2. Region-of-Interest Segmentation
 
 Before scanning, detect and crop the image into focused regions:
@@ -62,14 +75,38 @@ Each region is scanned separately with focused prompts tuned to that region's co
 
 If region detection fails (e.g., unusual layout), fall back to full-image scanning.
 
+### Supplier-Aware Layout Mapping
+On the first scan of a new supplier, the system maps the layout:
+- Where the supplier name appears (e.g., top-left)
+- Where the date and invoice number appear (e.g., top-right)
+- Where the items table starts and ends
+- Where totals are positioned (e.g., bottom-right)
+
+This layout map is saved to the supplier profile. On subsequent scans from the same supplier, ROI segmentation uses the saved layout for faster, more accurate region detection.
+
 ## 3. OCR Pre-Pass
 
 Run Tesseract OCR on the preprocessed image before sending to Claude. The OCR text is passed alongside the image in the Claude prompt as supplementary data. This gives the model two sources of information to cross-reference — especially helpful for small, faded, or low-contrast text that vision alone might miss.
 
 ## 4. Three-Pass Scanning Pipeline
 
+### Scan Modes
+
+Three modes control which AI model is used for each pass:
+
+| Mode | Scan 1 | Scan 2 | Scan 3 (Tiebreaker) | Best For |
+|------|--------|--------|---------------------|----------|
+| Light | Sonnet | Sonnet | Sonnet | Clean images, budget-conscious |
+| Normal | Sonnet | Sonnet | Opus | General use, good balance |
+| Heavy | Opus | Opus | Opus | Fuzzy/blurry/damaged, max accuracy |
+
+**Prototype:** User selects mode via dropdown before each scan.
+**Future:** Auto-select mode based on image quality assessment and accuracy/cost data.
+
+All three modes do up to 3 passes. Even Opus benefits from confirmation — the triple-check catches mistakes any single call can make.
+
 ### Scan 1 (Primary)
-For each region (or full image if no regions detected), send both image variants (original + preprocessed) plus the Tesseract OCR text to Claude Opus with a structured prompt requesting flat JSON extraction.
+For each region (or full image if no regions detected), send both image variants (original + preprocessed) plus the Tesseract OCR text to the selected model with a structured prompt requesting flat JSON extraction with per-field confidence scores (0-100).
 
 ### Scan 2 (Confirmation)
 Send the same inputs with a differently worded prompt (to avoid echo bias). Compare results field-by-field against Scan 1.
@@ -91,47 +128,96 @@ If any math doesn't check out, send the specific contradiction back to Claude wi
 - Numeric fields: exact match required
 - Array fields (items): match by item name, compare qty/price individually
 
-## 5. Two-Tier Inference System
+## 5. Three-Tier Inference System
 
-### Tier 1: Historical Pattern Matching
+When fields are missing, fuzzy, or low-confidence, apply inference in priority order:
+
+### Tier 1: Supplier-Specific Memory (highest priority)
 Check the supplier profile for known values:
 - Common item names and typical prices
 - Tax rate patterns
 - Invoice format/layout conventions
 - Typical quantities and order frequency
+- Example: "ABC Foods always charges $3.99/lb for chicken breast"
 
-### Tier 2: Contextual AI Inference
-When no historical data exists, make another Claude call with:
+### Tier 2: General Industry Memory (learned over time)
+Aggregated patterns across ALL scans from ALL suppliers:
+- Common restaurant supply item names and typical price ranges
+- Regional tax rate patterns
+- Common invoice formats across the restaurant supply industry
+- Example: "Chicken breast typically ranges $2.50-$5.00/lb across suppliers"
+
+This knowledge base grows with every scan processed by the system.
+
+### Tier 3: AI Contextual Reasoning (fallback)
+When no historical data exists at any level, make a Claude call with:
 - The partially extracted data
 - Invoice domain knowledge (e.g., "subtotal = sum of line items", "tax is typically a percentage of subtotal", "invoice numbers are sequential")
 - Ask Claude to identify keywords and contextual clues on the image to fill gaps and validate existing extractions
 
-All inferred fields are flagged in a `confidence` object in the output.
+All inferred fields are flagged in the `confidence` object with their source.
 
 ## 6. Supplier Memory System
 
 ### Storage Structure (JSON Prototype)
 ```
-data/suppliers/
-  ├── index.json              # maps supplier names to IDs
-  └── {supplier_id}/
-      ├── profile.json        # learned patterns, common values, tax rates
-      └── scans/
-          ├── 2026-03-25_001.json
-          └── 2026-03-25_002.json
+data/
+├── general/
+│   ├── industry_profile.json   # cross-supplier learned patterns
+│   └── item_catalog.json       # known items, typical price ranges
+├── suppliers/
+│   ├── index.json              # maps supplier names to IDs
+│   └── {supplier_id}/
+│       ├── profile.json        # learned patterns, common values, tax rates
+│       ├── layout.json         # supplier-specific invoice layout mapping
+│       └── scans/
+│           ├── 2026-03-25_001.json
+│           └── 2026-03-25_002.json
+└── stats/
+    ├── accuracy.json           # per-scan, per-supplier, per-mode accuracy
+    └── api_usage.json          # API call counts by model and mode
 ```
 
 ### Learning Mechanism
-After each successful scan, update the supplier profile with:
-- Common item names and typical prices
-- Tax rate patterns
-- Invoice format/layout notes
-- Order frequency and typical quantities
+After each successful scan (user confirms), update:
+- **Supplier profile** — item names, prices, tax rates, format notes
+- **Supplier layout** — invoice format/template mapping for ROI
+- **General industry profile** — aggregate patterns across all suppliers
+- **Item catalog** — growing database of known items and price ranges
+
+### Memory Update Policy
+Immediate trust — when a user corrects a value and confirms, the correction updates the supplier profile and general knowledge immediately. No waiting for multiple confirmations.
 
 ### Storage Interface
-`SupplierMemory` class with methods: `get_profile()`, `save_scan()`, `infer_missing()`. When migrating to SQLite, swap the implementation behind this interface.
+`SupplierMemory` class with methods: `get_profile()`, `save_scan()`, `infer_missing()`, `get_layout()`, `update_layout()`. `GeneralMemory` class with methods: `get_industry_profile()`, `get_item_catalog()`, `update_from_scan()`. When migrating to SQLite, swap the implementations behind these interfaces.
 
-## 7. Output Format
+## 7. Confidence Scoring
+
+Each field returned by Claude includes a confidence score from 0-100:
+- **90-100:** High confidence — clear text, consistent across scans
+- **60-89:** Medium confidence — somewhat readable, minor uncertainty
+- **0-59:** Low confidence — blurry, guessed, or inferred
+
+Confidence scores are used for:
+- UI highlighting — fields below threshold are visually flagged
+- Inference triggering — low-confidence fields are candidates for memory-based inference
+- Future auto-mode selection — low average confidence → suggest Heavy mode
+- Accuracy correlation — track if low-confidence scores predict user corrections
+
+## 8. Error Categorization
+
+When a user corrects a field, the system auto-categorizes the error type by comparing the original image region, the scanned value, and the correction:
+
+- **Misread** — scanner saw something wrong (e.g., "Chckn" → "Chicken"). The text was visible but misinterpreted. Indicates preprocessing or vision issues.
+- **Missing** — field wasn't visible on the image, had to be guessed. Indicates the image quality is too poor for that area or the field genuinely isn't present.
+- **Hallucinated** — scanner invented a value that wasn't on the image at all. Indicates prompt issues that need tightening.
+
+Error types are tracked per scan, per supplier, and per mode. This data reveals:
+- Lots of misreads → preprocessing pipeline needs improvement
+- Lots of missing → memory/inference system needs improvement
+- Lots of hallucinations → prompt engineering needs tightening
+
+## 9. Output Format
 
 Flat JSON structure:
 ```json
@@ -146,32 +232,96 @@ Flat JSON structure:
   "tax": 3.19,
   "total": 43.09,
   "confidence": {
+    "supplier": 98,
+    "date": 95,
+    "invoice_number": 92,
+    "items.0.name": 88,
+    "items.0.qty": 95,
+    "items.0.price": 72,
+    "subtotal": 90,
+    "tax": 45,
+    "total": 90
+  },
+  "inference_sources": {
     "tax": "inferred_from_history"
+  },
+  "scan_metadata": {
+    "mode": "normal",
+    "scan_passes": 2,
+    "tiebreaker_triggered": false,
+    "math_validation_triggered": true,
+    "api_calls": {
+      "sonnet": 2,
+      "opus": 0
+    }
   }
 }
 ```
 
-The `confidence` object flags any fields that were:
-- `inferred_from_history` — filled from supplier profile
+The `inference_sources` object flags fields that were:
+- `inferred_from_supplier` — filled from supplier-specific memory
+- `inferred_from_industry` — filled from general industry memory
 - `inferred_from_context` — filled by AI contextual reasoning
 - `tiebreaker_resolved` — disagreed between scan 1 and 2, resolved by scan 3
 - `math_corrected` — corrected by mathematical cross-validation
 
-## 8. Django UI
+## 10. Django UI
 
-### Single Page
-- Drag-and-drop zone (HTML5 drag/drop + file browse fallback)
-- AJAX upload with loading spinner during processing
-- JSON result displayed below in formatted, readable view
-- Confidence flags visually indicated for inferred/disputed fields
+### Single Page Layout
+- **Top:** Drag-and-drop zone for multiple images (HTML5 drag/drop + file browse fallback). Each dropped image becomes its own invoice.
+- **Controls:** Scan mode dropdown (Light/Normal/Heavy) + Debug mode toggle
+- **Middle:** Tabbed results view — one tab per scanned invoice + a summary tab
+- **Each invoice tab:** Editable form with scan results (see below)
+- **Summary tab:** Batch totals, overall accuracy, total API calls
+
+### Editable Result Form
+Each scan result displays as a form, not raw JSON:
+- **Header fields:** Supplier, date, invoice number — each as a labeled input pre-filled with scanned value
+- **Items table:** Editable table with columns for name, qty, unit, price. Users can add/remove rows if the scanner missed or hallucinated items.
+- **Totals fields:** Subtotal, tax, total — each as a labeled input
+- **Highlighting:** Fields that were guessed/inferred or have low confidence are highlighted with a distinct color/badge showing the inference source
+- **No modal interruption:** User reviews the form, edits any wrong values inline, then clicks "Confirm All"
+- **Tracking:** System tracks which fields the user changed before confirming. Fewer changes = higher accuracy.
+
+### Scan Stats Display
+At the bottom of each invoice tab:
+- Mode used (Light/Normal/Heavy)
+- API calls made (X Sonnet, Y Opus)
+- Whether tiebreaker was triggered
+- Whether math validation was triggered
+- Scan accuracy (after user confirms)
+
+### Mode Comparison Dashboard
+Accessible from the summary tab:
+- Per-mode accuracy averages: "Light: 78% | Normal: 89% | Heavy: 95%"
+- Per-mode API usage averages
+- Per-supplier accuracy over time
+- Running totals across all scans
 
 ### API Endpoint
-`POST /api/scan/` — accepts image file, returns final JSON result.
+`POST /api/scan/` — accepts image file + mode parameter, returns final JSON result.
 
 ### Frontend
 Vanilla HTML/CSS/JS. No framework. Minimal and functional for prototype.
 
-## 9. Project Structure
+## 11. Accuracy Tracking
+
+### Measurement
+Accuracy is measured by user corrections:
+- `accuracy = (total_fields - user_corrections) / total_fields × 100%`
+- A "field" includes each top-level value and each item row cell (name, qty, unit, price)
+- Adding or removing item rows counts as corrections
+
+### Tracking Levels
+- **Per-scan:** accuracy %, fields corrected, error types
+- **Per-supplier:** running accuracy over all scans for that supplier (should improve over time as memory builds)
+- **Per-mode:** running accuracy averages for Light, Normal, Heavy
+- **Overall:** global running accuracy across all scans
+
+### Storage
+Accuracy data stored in `data/stats/accuracy.json`. API usage stored in `data/stats/api_usage.json`.
+
+## 12. Project Structure
 
 ```
 SmartScanner/
@@ -190,17 +340,20 @@ SmartScanner/
 │   │   ├── orientation.py      # Rotation, deskew, perspective correction
 │   │   ├── analyzer.py         # Quality assessment
 │   │   ├── processor.py        # Selective image processing
-│   │   └── segmentation.py     # Region-of-interest detection and cropping
+│   │   └── segmentation.py     # ROI detection + supplier-aware layout
 │   ├── scanning/
 │   │   ├── ocr.py              # Tesseract OCR pre-pass
-│   │   ├── engine.py           # Three-pass scan orchestration
-│   │   ├── prompts.py          # Claude prompt templates
-│   │   ├── comparator.py       # Field-by-field comparison
+│   │   ├── engine.py           # Three-pass scan orchestration + mode selection
+│   │   ├── prompts.py          # Claude prompt templates (scan 1, 2, tiebreaker, inference)
+│   │   ├── comparator.py       # Field-by-field comparison + error categorization
 │   │   └── validator.py        # Mathematical cross-validation
 │   ├── memory/
-│   │   ├── interface.py        # SupplierMemory abstract interface
+│   │   ├── interface.py        # SupplierMemory + GeneralMemory abstract interfaces
 │   │   ├── json_store.py       # JSON file implementation
-│   │   └── inference.py        # Two-tier inference logic
+│   │   └── inference.py        # Three-tier inference logic
+│   ├── tracking/
+│   │   ├── accuracy.py         # Accuracy measurement and tracking
+│   │   └── api_usage.py        # API call counting per model/mode
 │   ├── templates/
 │   │   └── scanner/
 │   │       └── index.html
@@ -208,10 +361,45 @@ SmartScanner/
 │       └── scanner/
 │           ├── style.css
 │           └── app.js
-├── data/                       # Supplier memory (gitignored)
-│   └── suppliers/
+├── data/                       # All persistent data (gitignored)
+│   ├── general/
+│   ├── suppliers/
+│   └── stats/
+├── tests/
+│   ├── fixtures/               # Test images (clear, blurry, rotated, etc.)
+│   ├── expected/               # Golden JSON outputs
+│   ├── test_preprocessing.py
+│   ├── test_scanning.py
+│   ├── test_memory.py
+│   ├── test_inference.py
+│   ├── test_validator.py
+│   ├── test_accuracy.py
+│   └── test_integration.py
 └── docs/
 ```
+
+## 13. Verification Strategy
+
+### Unit Tests Per Module
+- **Orientation:** Test images rotated 90/180/270, tilted 5-15 degrees, perspective-warped. Verify text lines near 0 degrees after correction.
+- **Quality Assessment:** Known-quality images (dark, washed out, blurry, noisy, low-res, clean). Assert correct detection of each issue.
+- **Selective Processing:** Compare pixel metrics before/after (contrast increase, blur variance increase, etc.).
+- **ROI Segmentation:** Draw bounding boxes on output for visual verification. Test fallback with non-receipt images.
+- **OCR Pre-Pass:** Compare Tesseract output against known receipt text.
+- **Scan Engine:** Known receipt with all fields clear — all scans agree. Degraded version — verify tiebreaker triggers.
+- **Math Validator:** Feed intentionally wrong math, verify it catches contradictions.
+- **Inference:** Same supplier scanned twice, second with obscured field — verify Tier 1 fills it. New supplier with missing tax — verify Tier 2/3 infer it.
+- **Memory:** Scan 3 invoices from same supplier, verify profile accumulates patterns.
+- **Accuracy Tracking:** Simulate user corrections, verify accuracy calculation is correct.
+- **Error Categorization:** Simulate misread, missing, hallucinated corrections — verify auto-classification.
+
+### Integration Tests
+- **Golden test set:** 5-10 real receipts with manually created expected JSON output
+- **Full pipeline test:** Drop each image through the entire pipeline, compare output JSON against expected, score field-by-field accuracy
+- **Mode comparison test:** Run same images through Light, Normal, Heavy — compare accuracy and API call counts
+
+### Debug Mode Verification
+- Enable debug mode, run a scan, verify all intermediate outputs are saved and viewable
 
 ## Decisions Log
 
@@ -221,12 +409,23 @@ SmartScanner/
 | Storage | JSON files (prototype), SQLite (production) | Clean interface allows swap |
 | Preprocessing | Auto-detect and selectively apply | Best results without user overhead |
 | Output format | Flat JSON with items array | Simple, future PDF/doc generation |
-| UI scope | Single page, drop + result | Prototype — minimal viable |
+| UI scope | Single page with tabs | Batch upload, tabbed results per invoice |
 | Scan disagreement | Third tiebreaker scan | Most accurate, fully automated |
-| AI model | Claude Opus | Best vision capabilities for scanning |
+| AI models | Opus + Sonnet via scan modes | Cost vs accuracy flexibility |
 | Frontend | Vanilla HTML/CSS/JS | No framework overhead for prototype |
 | Orientation fix | Auto-detect rotation, skew, perspective | Tilted images are #1 misread source |
-| ROI segmentation | Crop header/items/totals regions | Focused scanning = higher per-field accuracy |
+| ROI segmentation | Supplier-aware layout mapping | Gets smarter per supplier over time |
 | OCR pre-pass | Tesseract alongside Claude vision | Two data sources cross-reference |
 | Multi-variant images | Send original + preprocessed together | Handles over-processing artifacts |
 | Math validation | Post-scan arithmetic checks | Catches errors all 3 scans agree on |
+| Memory system | Three-tier: supplier → industry → AI | Maximizes inference accuracy at all stages |
+| Confidence scoring | 0-100 per field from Claude | Drives highlighting, inference, future auto-mode |
+| Error categorization | Auto-classify: misread, missing, hallucinated | Reveals which system component needs improvement |
+| Result UI | Editable form with inline correction | No modal interruption, natural workflow |
+| Memory updates | Immediate trust on correction | Fast learning, simplest for prototype |
+| Duplicate detection | Not for prototype | Add later |
+| Batch upload | Multiple images, each own invoice | Efficient bulk processing |
+| Results display | Tabbed view per invoice + summary | Organized without overwhelming |
+| Mode selection | Manual dropdown for prototype | Future: auto-select based on image quality |
+| Debug mode | Optional toggle saves intermediates | On-demand debugging without overhead |
+| Accuracy measurement | User corrections / total fields | Direct, honest measure of real-world accuracy |
