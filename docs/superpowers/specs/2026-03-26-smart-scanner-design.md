@@ -401,6 +401,237 @@ SmartScanner/
 ### Debug Mode Verification
 - Enable debug mode, run a scan, verify all intermediate outputs are saved and viewable
 
+## 14. Phased Implementation Breakdown
+
+Each phase is a small, independent feature. Build it, test it, verify it works, then move on. Each phase starts in a **fresh context window** so the agent has clean context and reads the latest state of the codebase and this plan.
+
+### Workflow Per Phase
+1. Open fresh context window
+2. Read this spec + the implementation tracker (below)
+3. Build the phase's feature
+4. Write tests and verify it works
+5. Commit with clear message describing what was built
+6. Update the implementation tracker (below) with: what was done, files created/modified, test results, any deviations from plan
+7. Close context window
+
+### Implementation Tracker
+
+This section is updated after each phase is completed. It serves as the handoff document between context windows.
+
+```
+Phase 01: [ ] Not started
+Phase 02: [ ] Not started
+Phase 03: [ ] Not started
+Phase 04: [ ] Not started
+Phase 05: [ ] Not started
+Phase 06: [ ] Not started
+Phase 07: [ ] Not started
+Phase 08: [ ] Not started
+Phase 09: [ ] Not started
+Phase 10: [ ] Not started
+Phase 11: [ ] Not started
+Phase 12: [ ] Not started
+Phase 13: [ ] Not started
+Phase 14: [ ] Not started
+Phase 15: [ ] Not started
+Phase 16: [ ] Not started
+```
+
+---
+
+### Phase 01: Django Project Scaffolding
+**Goal:** Runnable Django project with empty app structure.
+**Build:**
+- `django-admin startproject smartscanner .`
+- `python manage.py startapp scanner`
+- Create all subdirectory packages: `preprocessing/`, `scanning/`, `memory/`, `tracking/`
+- Create `requirements.txt` with all dependencies
+- Create `.env` with placeholder for `ANTHROPIC_API_KEY`
+- Create `.gitignore` (Python, Django, .env, data/)
+- Create `data/` directory structure: `general/`, `suppliers/`, `stats/`
+- Configure `settings.py` for static files, templates, env loading
+**Verify:** `python manage.py runserver` starts without errors. All directories exist.
+**Files:** manage.py, smartscanner/*, scanner/__init__.py, scanner/urls.py, scanner/views.py, all subpackages, requirements.txt, .env, .gitignore
+
+---
+
+### Phase 02: Basic UI — File Drop Zone
+**Goal:** Single page with drag-and-drop that uploads an image and returns a placeholder response.
+**Build:**
+- `scanner/templates/scanner/index.html` — drop zone + file browse
+- `scanner/static/scanner/style.css` — minimal styling for drop zone
+- `scanner/static/scanner/app.js` — drag/drop handlers, AJAX upload
+- `scanner/views.py` — page view + `POST /api/scan/` that accepts image and returns dummy JSON
+- `scanner/urls.py` + `smartscanner/urls.py` — wire up routes
+**Verify:** Can open page in browser, drop an image, see placeholder JSON response. File upload works via AJAX.
+**Depends on:** Phase 01
+
+---
+
+### Phase 03: Orientation & Skew Correction
+**Goal:** Auto-fix rotated, tilted, and perspective-distorted images.
+**Build:**
+- `scanner/preprocessing/orientation.py` — EXIF rotation, Hough deskew, perspective warp
+**Verify:** Unit tests with rotated/tilted/warped test images. Tesseract OCR accuracy improves after correction.
+**Files:** orientation.py, test_preprocessing.py (orientation section)
+
+---
+
+### Phase 04: Quality Assessment
+**Goal:** Analyze image quality and report issues.
+**Build:**
+- `scanner/preprocessing/analyzer.py` — measure brightness, contrast, blur, noise, resolution. Return quality report dict.
+**Verify:** Unit tests with known-quality images (dark, washed out, blurry, noisy, low-res, clean). Assert correct detection.
+**Files:** analyzer.py, test_preprocessing.py (analyzer section)
+
+---
+
+### Phase 05: Selective Image Processing
+**Goal:** Apply only needed fixes based on quality assessment.
+**Build:**
+- `scanner/preprocessing/processor.py` — histogram equalization, sharpening, denoising, upscaling, grayscale. Accept quality report, apply relevant transforms.
+- Produce two variants: orientation-corrected-only + fully preprocessed.
+**Verify:** Pixel metrics improve after processing. Clean image passes through unchanged.
+**Files:** processor.py, test_preprocessing.py (processor section)
+
+---
+
+### Phase 06: ROI Segmentation
+**Goal:** Detect and crop header, line items, and totals regions.
+**Build:**
+- `scanner/preprocessing/segmentation.py` — region detection using contour/line analysis. Return cropped regions or full image as fallback.
+**Verify:** Visual bounding box test on sample receipts. Fallback works on non-standard layouts.
+**Files:** segmentation.py, test_preprocessing.py (segmentation section)
+
+---
+
+### Phase 07: OCR Pre-Pass
+**Goal:** Extract text from preprocessed image using Tesseract.
+**Build:**
+- `scanner/scanning/ocr.py` — run Tesseract on preprocessed image, return raw text.
+**Verify:** Compare output against known receipt text. Doesn't need to be perfect — supplementary data.
+**Files:** ocr.py, test_scanning.py (ocr section)
+
+---
+
+### Phase 08: Single Scan with Claude (No Multi-Pass Yet)
+**Goal:** Send image + OCR text to Claude and get structured JSON back with confidence scores.
+**Build:**
+- `scanner/scanning/prompts.py` — prompt templates for scan 1 (structured extraction with 0-100 confidence per field)
+- `scanner/scanning/engine.py` — single scan function: send both image variants + OCR text to Claude, parse JSON response
+- Wire into `POST /api/scan/` view — real scan instead of placeholder
+**Verify:** Drop a clear receipt image, get back correct JSON with confidence scores. Manual spot-check.
+**Files:** prompts.py, engine.py, views.py update
+
+---
+
+### Phase 09: Three-Pass Scanning with Tiebreaker
+**Goal:** Full triple-check scan pipeline with mode selection.
+**Build:**
+- `scanner/scanning/prompts.py` — add scan 2 (differently worded) and scan 3 (tiebreaker focused) prompt templates
+- `scanner/scanning/comparator.py` — field-by-field comparison: fuzzy match strings, exact match numbers, item array matching
+- `scanner/scanning/engine.py` — orchestrate 3 passes, trigger tiebreaker only on disagreement, support Light/Normal/Heavy modes
+- Add mode dropdown to UI
+**Verify:** Clear receipt — scans 1 and 2 agree, no tiebreaker. Degraded receipt — tiebreaker triggers. Mode dropdown switches models.
+**Files:** prompts.py update, comparator.py, engine.py update, index.html update, app.js update
+
+---
+
+### Phase 10: Mathematical Cross-Validation
+**Goal:** Arithmetic checks catch errors all scans agree on.
+**Build:**
+- `scanner/scanning/validator.py` — check qty×price=line total, sum=subtotal, subtotal+tax=total. On failure, send contradiction back to Claude.
+- Wire into engine after scan passes complete.
+**Verify:** Feed intentionally wrong math in JSON — validator catches and corrects. Feed correct math — passes clean.
+**Files:** validator.py, engine.py update, test_validator.py
+
+---
+
+### Phase 11: Memory Interfaces + JSON Storage
+**Goal:** Storage layer for supplier-specific and general industry memory.
+**Build:**
+- `scanner/memory/interface.py` — abstract `SupplierMemory` (get_profile, save_scan, infer_missing, get_layout, update_layout) + `GeneralMemory` (get_industry_profile, get_item_catalog, update_from_scan)
+- `scanner/memory/json_store.py` — JSON file implementations of both interfaces
+- Create initial data structure: `data/suppliers/index.json`, `data/general/industry_profile.json`, `data/general/item_catalog.json`
+**Verify:** Unit tests: save a scan, retrieve profile, verify data persists. Save layout, retrieve layout.
+**Files:** interface.py, json_store.py, test_memory.py
+
+---
+
+### Phase 12: Three-Tier Inference System
+**Goal:** Fill missing/low-confidence fields using supplier memory → industry memory → AI reasoning.
+**Build:**
+- `scanner/memory/inference.py` — three-tier inference: check supplier profile first, then general industry data, then make Claude call for contextual reasoning
+- Wire into engine: after scan + validation, run inference on low-confidence fields
+**Verify:** Same supplier scanned twice, second with obscured field — Tier 1 fills it. New supplier with missing field — Tier 2/3 fills it. All inferred fields flagged.
+**Files:** inference.py, engine.py update, test_inference.py
+
+---
+
+### Phase 13: Editable Result Form UI
+**Goal:** Replace raw JSON display with editable form. Highlight guessed fields.
+**Build:**
+- Update `index.html` — editable form: header fields as inputs, items as editable table with add/remove rows, totals as inputs
+- Highlight low-confidence/inferred fields with distinct color + badge showing source
+- "Confirm All" button that submits corrections
+- `POST /api/confirm/` endpoint — receives original scan + user corrections
+- Track which fields user changed
+**Verify:** Scan an image, see editable form. Change a value, confirm. Verify correction is tracked.
+**Files:** index.html rewrite, style.css update, app.js update, views.py update
+
+---
+
+### Phase 14: Memory Learning from User Corrections
+**Goal:** User corrections immediately update supplier + general memory.
+**Build:**
+- On confirm: compare original scan to user's final values
+- Update supplier profile with corrected values (immediate trust)
+- Update general industry profile with new data points
+- Auto-categorize errors: misread, missing, hallucinated
+- Save error categories alongside corrections
+**Verify:** Correct a price, confirm. Scan same supplier again — corrected value appears in memory. Error type is correctly classified.
+**Files:** views.py update, json_store.py update, comparator.py update (error categorization)
+
+---
+
+### Phase 15: Supplier Layout Mapping
+**Goal:** Learn and reuse invoice layout per supplier for smarter ROI.
+**Build:**
+- After first successful scan of a supplier, map layout: where supplier name, date, items table, totals appear
+- Save to `{supplier_id}/layout.json`
+- Update `segmentation.py` to check for saved layout before generic detection
+**Verify:** Scan supplier first time — layout saved. Scan same supplier again — segmentation uses saved layout. Verify faster/more accurate ROI.
+**Files:** segmentation.py update, json_store.py update, engine.py update
+
+---
+
+### Phase 16: Batch Upload, Tabs, Accuracy Dashboard, Debug Mode
+**Goal:** Multi-image upload, tabbed results, stats, and debug toggle.
+**Build:**
+- Update drop zone to accept multiple images
+- Tabbed UI: one tab per invoice + summary tab
+- Each tab shows editable form + scan stats (mode, API calls, tiebreaker/math flags)
+- Summary tab: mode comparison dashboard (Light vs Normal vs Heavy accuracy + API usage)
+- Per-supplier accuracy over time
+- Debug mode toggle: saves and displays preprocessing intermediates
+- `scanner/tracking/accuracy.py` — accuracy calculation and storage
+- `scanner/tracking/api_usage.py` — API call counting per model/mode
+- `data/stats/accuracy.json` + `data/stats/api_usage.json`
+**Verify:** Upload 3 images, see 3 tabs + summary. Confirm corrections, see accuracy stats. Toggle debug mode, verify intermediates saved. Mode comparison shows correct averages.
+**Files:** index.html update, style.css update, app.js update, views.py update, accuracy.py, api_usage.py, test_accuracy.py
+
+---
+
+### Phase 17: Integration Testing + Golden Test Set
+**Goal:** End-to-end verification with real receipts.
+**Build:**
+- `tests/fixtures/` — 5-10 test receipt images (clear, blurry, rotated, multi-format)
+- `tests/expected/` — manually created expected JSON for each
+- `tests/test_integration.py` — full pipeline test: upload image → preprocessing → scan → validate → output. Compare against expected JSON field-by-field.
+- Mode comparison test: run same images through Light/Normal/Heavy
+**Verify:** All integration tests pass. Accuracy report generated per mode.
+**Files:** test fixtures, expected JSONs, test_integration.py
+
 ## Decisions Log
 
 | Decision | Choice | Rationale |
