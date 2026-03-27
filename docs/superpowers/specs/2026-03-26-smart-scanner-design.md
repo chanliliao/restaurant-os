@@ -551,7 +551,14 @@ Phase 09:  [x] Complete — Three-pass scanning with tiebreaker
   - scan_metadata includes: scans_performed, tiebreaker_triggered, agreement_ratio, models_used, api_calls
   - 188 total passing tests (93 preprocessing + 95 scanning — all mocked, no real API calls)
   - Files: scanner/scanning/prompts.py, scanner/scanning/comparator.py, scanner/scanning/engine.py, scanner/scanning/__init__.py, tests/test_scanning.py
-Phase 10:  [ ] Not started — Mathematical cross-validation
+Phase 10:  [x] Complete — Mathematical cross-validation
+  - validate_math() checks line totals (qty x price), subtotal (sum of items), grand total (subtotal + tax)
+  - auto_correct() applies cascading fixes: line totals -> subtotal -> total
+  - 0.01 tolerance for floating point, graceful None/null handling
+  - Wired into scan_invoice() after merge_results; sets math_validation_triggered in metadata
+  - Debug mode includes validation errors in scan_metadata
+  - 208 total passing tests (188 existing + 20 new validator tests)
+  - Files: scanner/scanning/validator.py, scanner/scanning/engine.py, scanner/scanning/__init__.py, tests/test_validator.py
 Phase 11:  [ ] Not started — Memory interfaces + JSON storage
 Phase 12:  [ ] Not started — Three-tier inference system
 Phase 13:  [ ] Not started — Editable result form UI (React)
