@@ -524,7 +524,14 @@ Phase 06:  [x] Complete — ROI segmentation
   - 87 total passing tests (22 orientation + 12 analyzer + 32 processor + 21 segmentation)
   - Security: no file I/O, no shell commands, all in-memory processing
   - Files: scanner/preprocessing/segmentation.py, tests/test_preprocessing.py
-Phase 07:  [ ] Not started — OCR pre-pass
+Phase 07:  [x] Complete — OCR pre-pass
+  - scanner/scanning/ocr.py: extract_text, extract_text_from_regions, ocr_prepass
+  - Graceful degradation: TesseractNotFoundError returns empty string with warning log
+  - Supports PIL Image and numpy array input, auto-converts to PIL
+  - extract_text_from_regions processes segment_invoice() output dict, skips None regions
+  - 107 total passing tests (93 preprocessing + 14 scanning/OCR, all mocked)
+  - Security: no file I/O, no shell commands, no user-controlled strings to subprocess
+  - Files: scanner/scanning/ocr.py, scanner/scanning/__init__.py, tests/test_scanning.py
 Phase 08:  [ ] Not started — Single scan with Claude
 Phase 09:  [ ] Not started — Three-pass scanning with tiebreaker
 Phase 10:  [ ] Not started — Mathematical cross-validation
