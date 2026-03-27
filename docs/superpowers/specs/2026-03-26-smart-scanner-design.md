@@ -473,8 +473,23 @@ Phase 01:  [x] Complete — Backend scaffolding (Django REST)
   - Data directory structure with initial JSON files
   - 6 passing tests for scan endpoint
   - Security scan: Pillow bumped for CVE-2026-25990, all else clean
-Phase 02:  [ ] Not started — Frontend scaffolding (React + TypeScript)
-Phase 02b: [ ] Not started — Scan controls UI (mode dropdown + debug toggle)
+Phase 02:  [x] Complete — Frontend scaffolding (React + TypeScript)
+  - Vite 8 + React 19 + TypeScript 5.9 (strict mode)
+  - TypeScript interfaces: ScanMode, LineItem, ScanResponse, ScanRequest
+  - Axios API client (src/services/api.ts) with multipart/form-data POST
+  - DropZone component: HTML5 drag-and-drop + click-to-browse with client-side
+    type validation (image/*) and 20 MB size limit (defense in depth)
+  - Vite proxy: /api/* -> http://localhost:8000
+  - npm run build: 0 TypeScript errors, production build succeeds
+  - npm audit: 0 vulnerabilities
+  - Files: frontend/ (index.html, package.json, tsconfig.json, vite.config.ts,
+    src/main.tsx, src/App.tsx, src/types/scan.ts, src/services/api.ts,
+    src/components/DropZone.tsx, src/styles/app.css)
+Phase 02b: [x] Complete — Scan controls UI (mode dropdown + debug toggle)
+  - ScanControls component: Light/Normal/Heavy dropdown + Debug mode checkbox
+  - Controls wired into App state -> DropZone -> API call sends mode parameter
+  - Backend already accepts and echoes mode parameter (no backend changes needed)
+  - Files: src/components/ScanControls.tsx
 Phase 03:  [ ] Not started — Orientation & skew correction
 Phase 04:  [ ] Not started — Quality assessment
 Phase 05:  [ ] Not started — Selective image processing
