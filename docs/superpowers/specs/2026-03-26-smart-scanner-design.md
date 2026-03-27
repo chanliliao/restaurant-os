@@ -2,7 +2,7 @@
 
 ## Overview
 
-SmartScanner is a Django-based web application that uses Claude AI to extract structured data from restaurant receipt and invoice images. It is a specialty invoice scanning agent featuring:
+SmartScanner is a web application with a React frontend and Python (Django REST) backend that uses Claude AI to extract structured data from restaurant receipt and invoice images. It is a specialty invoice scanning agent featuring:
 
 - Intelligent image preprocessing with auto-detect quality correction
 - Region-of-interest segmentation with supplier-aware layout mapping
@@ -16,15 +16,25 @@ SmartScanner is a Django-based web application that uses Claude AI to extract st
 
 ## Architecture
 
-Monolithic Django application. All processing happens in-process. Designed with clean internal module boundaries so components can be extracted into services later.
+Two-tier architecture: React frontend for the UI, Django REST Framework backend for the scanning agent logic. The frontend communicates with the backend via REST API. All AI/image processing happens server-side in Python.
 
 **Tech Stack:**
+
+**Backend (Python):**
 - Python 3.11+
-- Django 5.x
+- Django 5.x + Django REST Framework
+- django-cors-headers (for React dev server)
 - Anthropic Python SDK (Claude Opus + Sonnet for scanning)
 - Pillow + OpenCV for image preprocessing
 - Tesseract OCR (pytesseract) for complementary text extraction
 - JSON files for storage (prototype), SQLite for production
+
+**Frontend (React + TypeScript):**
+- React 18+ with Vite + TypeScript
+- React Router (if needed for future pages)
+- Axios for API calls
+- TypeScript strict mode for type safety
+- CSS Modules or plain CSS for styling
 
 ## 1. Image Preprocessing Pipeline
 
@@ -265,16 +275,16 @@ The `inference_sources` object flags fields that were:
 - `tiebreaker_resolved` — disagreed between scan 1 and 2, resolved by scan 3
 - `math_corrected` — corrected by mathematical cross-validation
 
-## 10. Django UI
+## 10. React Frontend
 
 ### Single Page Layout
-- **Top:** Drag-and-drop zone for multiple images (HTML5 drag/drop + file browse fallback). Each dropped image becomes its own invoice.
+- **Top:** Drag-and-drop zone component for multiple images (react-dropzone or HTML5 drag/drop). Each dropped image becomes its own invoice.
 - **Controls:** Scan mode dropdown (Light/Normal/Heavy) + Debug mode toggle
 - **Middle:** Tabbed results view — one tab per scanned invoice + a summary tab
-- **Each invoice tab:** Editable form with scan results (see below)
+- **Each invoice tab:** Editable form component with scan results (see below)
 - **Summary tab:** Batch totals, overall accuracy, total API calls
 
-### Editable Result Form
+### Editable Result Form Component
 Each scan result displays as a form, not raw JSON:
 - **Header fields:** Supplier, date, invoice number — each as a labeled input pre-filled with scanned value
 - **Items table:** Editable table with columns for name, qty, unit, price. Users can add/remove rows if the scanner missed or hallucinated items.
@@ -283,7 +293,7 @@ Each scan result displays as a form, not raw JSON:
 - **No modal interruption:** User reviews the form, edits any wrong values inline, then clicks "Confirm All"
 - **Tracking:** System tracks which fields the user changed before confirming. Fewer changes = higher accuracy.
 
-### Scan Stats Display
+### Scan Stats Component
 At the bottom of each invoice tab:
 - Mode used (Light/Normal/Heavy)
 - API calls made (X Sonnet, Y Opus)
@@ -291,18 +301,17 @@ At the bottom of each invoice tab:
 - Whether math validation was triggered
 - Scan accuracy (after user confirms)
 
-### Mode Comparison Dashboard
+### Mode Comparison Dashboard Component
 Accessible from the summary tab:
 - Per-mode accuracy averages: "Light: 78% | Normal: 89% | Heavy: 95%"
 - Per-mode API usage averages
 - Per-supplier accuracy over time
 - Running totals across all scans
 
-### API Endpoint
-`POST /api/scan/` — accepts image file + mode parameter, returns final JSON result.
-
-### Frontend
-Vanilla HTML/CSS/JS. No framework. Minimal and functional for prototype.
+### API Endpoints (Django REST)
+- `POST /api/scan/` — accepts image file + mode parameter, returns final JSON result
+- `POST /api/confirm/` — accepts original scan + user corrections, updates memory
+- `GET /api/stats/` — returns accuracy and API usage stats
 
 ## 11. Accuracy Tracking
 
@@ -325,56 +334,73 @@ Accuracy data stored in `data/stats/accuracy.json`. API usage stored in `data/st
 
 ```
 SmartScanner/
-├── manage.py
-├── requirements.txt
-├── .env                        # ANTHROPIC_API_KEY
-├── .gitignore
-├── smartscanner/               # Django project settings
-│   ├── settings.py
-│   ├── urls.py
-│   └── wsgi.py
-├── scanner/                    # Main Django app
-│   ├── views.py
-│   ├── urls.py
-│   ├── preprocessing/
-│   │   ├── orientation.py      # Rotation, deskew, perspective correction
-│   │   ├── analyzer.py         # Quality assessment
-│   │   ├── processor.py        # Selective image processing
-│   │   └── segmentation.py     # ROI detection + supplier-aware layout
-│   ├── scanning/
-│   │   ├── ocr.py              # Tesseract OCR pre-pass
-│   │   ├── engine.py           # Three-pass scan orchestration + mode selection
-│   │   ├── prompts.py          # Claude prompt templates (scan 1, 2, tiebreaker, inference)
-│   │   ├── comparator.py       # Field-by-field comparison + error categorization
-│   │   └── validator.py        # Mathematical cross-validation
-│   ├── memory/
-│   │   ├── interface.py        # SupplierMemory + GeneralMemory abstract interfaces
-│   │   ├── json_store.py       # JSON file implementation
-│   │   └── inference.py        # Three-tier inference logic
-│   ├── tracking/
-│   │   ├── accuracy.py         # Accuracy measurement and tracking
-│   │   └── api_usage.py        # API call counting per model/mode
-│   ├── templates/
-│   │   └── scanner/
-│   │       └── index.html
-│   └── static/
-│       └── scanner/
-│           ├── style.css
-│           └── app.js
-├── data/                       # All persistent data (gitignored)
-│   ├── general/
-│   ├── suppliers/
-│   └── stats/
-├── tests/
-│   ├── fixtures/               # Test images (clear, blurry, rotated, etc.)
-│   ├── expected/               # Golden JSON outputs
-│   ├── test_preprocessing.py
-│   ├── test_scanning.py
-│   ├── test_memory.py
-│   ├── test_inference.py
-│   ├── test_validator.py
-│   ├── test_accuracy.py
-│   └── test_integration.py
+├── backend/                    # Python Django REST API
+│   ├── manage.py
+│   ├── requirements.txt
+│   ├── .env                    # ANTHROPIC_API_KEY
+│   ├── smartscanner/           # Django project settings
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   └── wsgi.py
+│   ├── scanner/                # Main Django app
+│   │   ├── views.py            # REST API endpoints
+│   │   ├── urls.py
+│   │   ├── serializers.py      # DRF serializers
+│   │   ├── preprocessing/
+│   │   │   ├── orientation.py  # Rotation, deskew, perspective correction
+│   │   │   ├── analyzer.py     # Quality assessment
+│   │   │   ├── processor.py    # Selective image processing
+│   │   │   └── segmentation.py # ROI detection + supplier-aware layout
+│   │   ├── scanning/
+│   │   │   ├── ocr.py          # Tesseract OCR pre-pass
+│   │   │   ├── engine.py       # Three-pass scan orchestration + mode selection
+│   │   │   ├── prompts.py      # Claude prompt templates
+│   │   │   ├── comparator.py   # Field-by-field comparison + error categorization
+│   │   │   └── validator.py    # Mathematical cross-validation
+│   │   ├── memory/
+│   │   │   ├── interface.py    # SupplierMemory + GeneralMemory abstract interfaces
+│   │   │   ├── json_store.py   # JSON file implementation
+│   │   │   └── inference.py    # Three-tier inference logic
+│   │   └── tracking/
+│   │       ├── accuracy.py     # Accuracy measurement and tracking
+│   │       └── api_usage.py    # API call counting per model/mode
+│   ├── data/                   # All persistent data (gitignored)
+│   │   ├── general/
+│   │   ├── suppliers/
+│   │   └── stats/
+│   └── tests/
+│       ├── fixtures/           # Test images (clear, blurry, rotated, etc.)
+│       ├── expected/           # Golden JSON outputs
+│       ├── test_preprocessing.py
+│       ├── test_scanning.py
+│       ├── test_memory.py
+│       ├── test_inference.py
+│       ├── test_validator.py
+│       ├── test_accuracy.py
+│       └── test_integration.py
+├── frontend/                   # React + TypeScript (Vite)
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── index.html
+│   ├── src/
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   ├── types/
+│   │   │   └── scan.ts         # TypeScript interfaces for scan data
+│   │   ├── components/
+│   │   │   ├── DropZone.tsx     # Drag-and-drop file upload
+│   │   │   ├── ScanControls.tsx # Mode dropdown + debug toggle
+│   │   │   ├── ResultTabs.tsx   # Tabbed invoice results
+│   │   │   ├── InvoiceForm.tsx  # Editable scan result form
+│   │   │   ├── ItemsTable.tsx   # Editable items table with add/remove
+│   │   │   ├── ScanStats.tsx    # Per-scan stats display
+│   │   │   └── Dashboard.tsx    # Mode comparison + accuracy dashboard
+│   │   ├── services/
+│   │   │   └── api.ts          # Axios API client
+│   │   └── styles/
+│       │   └── app.css
+│   └── public/
 └── docs/
 ```
 
@@ -412,67 +438,98 @@ Each phase is a small, independent feature. Build it, test it, verify it works, 
 ### Workflow Per Phase
 1. Open fresh context window
 2. Read this spec + the implementation tracker (below)
-3. Build the phase's feature
-4. Write tests and verify it works
-5. Commit with clear message describing what was built
-6. **Push to GitHub** (`git push origin master`)
-7. Update the implementation tracker (below) with: what was done, files created/modified, test results, any deviations from plan
-8. Commit and **push** the tracker update to GitHub
-9. Close context window
+3. **Plan first** — invoke the writing-plans skill to create a detailed plan for this phase before writing any code
+4. Build the phase's feature
+5. Write tests and verify it works
+6. **Security scan** — review all code written in this phase for security issues:
+   - Input validation (file uploads, API params, user corrections)
+   - Injection vulnerabilities (command injection via filenames, path traversal)
+   - API key exposure (never in frontend, never in git)
+   - CORS configuration (restrict origins in production)
+   - File handling (validate image types, size limits, sanitize filenames)
+   - Dependency vulnerabilities (`pip audit` for Python, `npm audit` for frontend)
+   - Fix any issues found before committing
+7. Commit with clear message describing what was built
+8. **Push to GitHub** (`git push origin master`)
+9. Update the implementation tracker (below) with: what was done, files created/modified, test results, security scan results, any deviations from plan
+10. Commit and **push** the tracker update to GitHub
+11. Close context window
 
-**Every phase MUST end with code pushed to GitHub.** No exceptions.
+**Every phase MUST:**
+- Start with a plan (writing-plans skill)
+- End with a security scan
+- End with code pushed to GitHub
+No exceptions.
 
 ### Implementation Tracker
 
 This section is updated after each phase is completed. It serves as the handoff document between context windows.
 
 ```
-Phase 01: [ ] Not started
-Phase 02: [ ] Not started
-Phase 03: [ ] Not started
-Phase 04: [ ] Not started
-Phase 05: [ ] Not started
-Phase 06: [ ] Not started
-Phase 07: [ ] Not started
-Phase 08: [ ] Not started
-Phase 09: [ ] Not started
-Phase 10: [ ] Not started
-Phase 11: [ ] Not started
-Phase 12: [ ] Not started
-Phase 13: [ ] Not started
-Phase 14: [ ] Not started
-Phase 15: [ ] Not started
-Phase 16: [ ] Not started
+Phase 01:  [ ] Not started — Backend scaffolding (Django REST)
+Phase 02:  [ ] Not started — Frontend scaffolding (React + TypeScript)
+Phase 02b: [ ] Not started — Scan controls UI (mode dropdown + debug toggle)
+Phase 03:  [ ] Not started — Orientation & skew correction
+Phase 04:  [ ] Not started — Quality assessment
+Phase 05:  [ ] Not started — Selective image processing
+Phase 06:  [ ] Not started — ROI segmentation
+Phase 07:  [ ] Not started — OCR pre-pass
+Phase 08:  [ ] Not started — Single scan with Claude
+Phase 09:  [ ] Not started — Three-pass scanning with tiebreaker
+Phase 10:  [ ] Not started — Mathematical cross-validation
+Phase 11:  [ ] Not started — Memory interfaces + JSON storage
+Phase 12:  [ ] Not started — Three-tier inference system
+Phase 13:  [ ] Not started — Editable result form UI (React)
+Phase 14:  [ ] Not started — Memory learning from user corrections
+Phase 15:  [ ] Not started — Supplier layout mapping
+Phase 16:  [ ] Not started — Batch upload, tabs, dashboard, debug mode (React)
+Phase 17:  [ ] Not started — Integration testing + golden test set
 ```
 
 ---
 
-### Phase 01: Django Project Scaffolding
-**Goal:** Runnable Django project with empty app structure.
+### Phase 01: Backend Scaffolding (Django REST)
+**Goal:** Runnable Django REST API with empty app structure.
 **Build:**
-- `django-admin startproject smartscanner .`
+- `backend/` directory with `django-admin startproject smartscanner .`
 - `python manage.py startapp scanner`
+- Install and configure Django REST Framework + django-cors-headers
 - Create all subdirectory packages: `preprocessing/`, `scanning/`, `memory/`, `tracking/`
 - Create `requirements.txt` with all dependencies
 - Create `.env` with placeholder for `ANTHROPIC_API_KEY`
-- Create `.gitignore` (Python, Django, .env, data/)
+- Create `.gitignore` (Python, Django, .env, data/, node_modules/)
 - Create `data/` directory structure: `general/`, `suppliers/`, `stats/`
-- Configure `settings.py` for static files, templates, env loading
-**Verify:** `python manage.py runserver` starts without errors. All directories exist.
-**Files:** manage.py, smartscanner/*, scanner/__init__.py, scanner/urls.py, scanner/views.py, all subpackages, requirements.txt, .env, .gitignore
+- Configure `settings.py` for DRF, CORS (allow React dev server), env loading
+- Create placeholder `POST /api/scan/` endpoint returning dummy JSON
+- Create `scanner/serializers.py` for DRF
+**Verify:** `python manage.py runserver` starts without errors. `curl POST /api/scan/` returns dummy JSON. All directories exist.
+**Files:** backend/manage.py, backend/smartscanner/*, backend/scanner/*, all subpackages, requirements.txt, .env, .gitignore
 
 ---
 
-### Phase 02: Basic UI — File Drop Zone
-**Goal:** Single page with drag-and-drop that uploads an image and returns a placeholder response.
+### Phase 02: Frontend Scaffolding (React + TypeScript)
+**Goal:** React app with Vite + TypeScript that can talk to the backend API.
 **Build:**
-- `scanner/templates/scanner/index.html` — drop zone + file browse
-- `scanner/static/scanner/style.css` — minimal styling for drop zone
-- `scanner/static/scanner/app.js` — drag/drop handlers, AJAX upload
-- `scanner/views.py` — page view + `POST /api/scan/` that accepts image and returns dummy JSON
-- `scanner/urls.py` + `smartscanner/urls.py` — wire up routes
-**Verify:** Can open page in browser, drop an image, see placeholder JSON response. File upload works via AJAX.
+- `frontend/` directory with `npm create vite@latest . -- --template react-ts`
+- Create `src/types/scan.ts` — TypeScript interfaces for scan request/response data
+- Create `src/services/api.ts` — Axios client configured to call backend
+- Create `src/components/DropZone.tsx` — drag-and-drop file upload component
+- Create `src/App.tsx` — main page with DropZone, displays placeholder JSON result
+- Create `src/styles/app.css` — minimal styling
+- Configure `vite.config.ts` with proxy to Django backend for dev
+**Verify:** `npm run dev` starts. Drop an image → calls backend API → displays dummy JSON response. TypeScript compiles with no errors.
 **Depends on:** Phase 01
+
+---
+
+### Phase 02b: Scan Controls UI
+**Goal:** Mode dropdown and debug toggle wired to API.
+**Build:**
+- Create `src/components/ScanControls.tsx` — Light/Normal/Heavy dropdown + Debug mode checkbox
+- Wire controls into DropZone → API call sends mode parameter
+- Update backend `POST /api/scan/` to accept and echo back mode parameter
+**Verify:** Mode dropdown sends correct value to backend. Debug toggle state persists. TypeScript types cover mode enum.
+**Depends on:** Phase 02
 
 ---
 
@@ -527,8 +584,8 @@ Phase 16: [ ] Not started
 **Build:**
 - `scanner/scanning/prompts.py` — prompt templates for scan 1 (structured extraction with 0-100 confidence per field)
 - `scanner/scanning/engine.py` — single scan function: send both image variants + OCR text to Claude, parse JSON response
-- Wire into `POST /api/scan/` view — real scan instead of placeholder
-**Verify:** Drop a clear receipt image, get back correct JSON with confidence scores. Manual spot-check.
+- Wire into `POST /api/scan/` REST endpoint — real scan instead of placeholder
+**Verify:** Drop a clear receipt image via React UI, get back correct JSON with confidence scores. Manual spot-check.
 **Files:** prompts.py, engine.py, views.py update
 
 ---
@@ -576,16 +633,17 @@ Phase 16: [ ] Not started
 
 ---
 
-### Phase 13: Editable Result Form UI
-**Goal:** Replace raw JSON display with editable form. Highlight guessed fields.
+### Phase 13: Editable Result Form UI (React)
+**Goal:** Replace raw JSON display with editable React form components. Highlight guessed fields.
 **Build:**
-- Update `index.html` — editable form: header fields as inputs, items as editable table with add/remove rows, totals as inputs
+- Create `src/components/InvoiceForm.tsx` — editable form: header fields as inputs, totals as inputs, "Confirm All" button
+- Create `src/components/ItemsTable.tsx` — editable items table with add/remove rows (name, qty, unit, price columns)
 - Highlight low-confidence/inferred fields with distinct color + badge showing source
-- "Confirm All" button that submits corrections
-- `POST /api/confirm/` endpoint — receives original scan + user corrections
-- Track which fields user changed
-**Verify:** Scan an image, see editable form. Change a value, confirm. Verify correction is tracked.
-**Files:** index.html rewrite, style.css update, app.js update, views.py update
+- Track which fields user changed (diff original vs final state)
+- Update `src/types/scan.ts` — types for correction tracking
+- Backend: `POST /api/confirm/` endpoint — receives original scan + user corrections
+**Verify:** Scan an image, see editable form. Change a value, confirm. Verify correction is tracked. TypeScript compiles clean.
+**Files:** InvoiceForm.tsx, ItemsTable.tsx, scan.ts update, api.ts update, views.py update
 
 ---
 
@@ -613,20 +671,20 @@ Phase 16: [ ] Not started
 
 ---
 
-### Phase 16: Batch Upload, Tabs, Accuracy Dashboard, Debug Mode
+### Phase 16: Batch Upload, Tabs, Accuracy Dashboard, Debug Mode (React)
 **Goal:** Multi-image upload, tabbed results, stats, and debug toggle.
 **Build:**
-- Update drop zone to accept multiple images
-- Tabbed UI: one tab per invoice + summary tab
-- Each tab shows editable form + scan stats (mode, API calls, tiebreaker/math flags)
-- Summary tab: mode comparison dashboard (Light vs Normal vs Heavy accuracy + API usage)
-- Per-supplier accuracy over time
-- Debug mode toggle: saves and displays preprocessing intermediates
-- `scanner/tracking/accuracy.py` — accuracy calculation and storage
-- `scanner/tracking/api_usage.py` — API call counting per model/mode
+- Update `DropZone.tsx` to accept multiple images
+- Create `src/components/ResultTabs.tsx` — tabbed view: one tab per invoice + summary tab
+- Create `src/components/ScanStats.tsx` — per-scan stats (mode, API calls, tiebreaker/math flags)
+- Create `src/components/Dashboard.tsx` — mode comparison dashboard (Light vs Normal vs Heavy accuracy + API usage), per-supplier accuracy over time
+- Debug mode: when toggled, backend saves preprocessing intermediates, frontend displays them
+- Backend: `scanner/tracking/accuracy.py` — accuracy calculation and storage
+- Backend: `scanner/tracking/api_usage.py` — API call counting per model/mode
+- Backend: `GET /api/stats/` — returns accuracy and API usage data
 - `data/stats/accuracy.json` + `data/stats/api_usage.json`
-**Verify:** Upload 3 images, see 3 tabs + summary. Confirm corrections, see accuracy stats. Toggle debug mode, verify intermediates saved. Mode comparison shows correct averages.
-**Files:** index.html update, style.css update, app.js update, views.py update, accuracy.py, api_usage.py, test_accuracy.py
+**Verify:** Upload 3 images, see 3 tabs + summary. Confirm corrections, see accuracy stats. Toggle debug mode, verify intermediates saved. Mode comparison shows correct averages. All TypeScript types cover stats data.
+**Files:** DropZone.tsx update, ResultTabs.tsx, ScanStats.tsx, Dashboard.tsx, scan.ts update, api.ts update, views.py update, accuracy.py, api_usage.py, test_accuracy.py
 
 ---
 
@@ -651,7 +709,8 @@ Phase 16: [ ] Not started
 | UI scope | Single page with tabs | Batch upload, tabbed results per invoice |
 | Scan disagreement | Third tiebreaker scan | Most accurate, fully automated |
 | AI models | Opus + Sonnet via scan modes | Cost vs accuracy flexibility |
-| Frontend | Vanilla HTML/CSS/JS | No framework overhead for prototype |
+| Frontend | React + TypeScript (Vite) | Component-based, type-safe, modern stack |
+| Backend API | Django REST Framework | Clean REST endpoints for React frontend |
 | Orientation fix | Auto-detect rotation, skew, perspective | Tilted images are #1 misread source |
 | ROI segmentation | Supplier-aware layout mapping | Gets smarter per supplier over time |
 | OCR pre-pass | Tesseract alongside Claude vision | Two data sources cross-reference |
