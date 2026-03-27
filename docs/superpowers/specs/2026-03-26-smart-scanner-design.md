@@ -532,7 +532,17 @@ Phase 07:  [x] Complete — OCR pre-pass
   - 107 total passing tests (93 preprocessing + 14 scanning/OCR, all mocked)
   - Security: no file I/O, no shell commands, no user-controlled strings to subprocess
   - Files: scanner/scanning/ocr.py, scanner/scanning/__init__.py, tests/test_scanning.py
-Phase 08:  [ ] Not started — Single scan with Claude
+Phase 08:  [x] Complete — Single scan with Claude
+  - prompts.py: build_scan_prompt() with OCR text, confidence scores, inference_sources
+  - engine.py: scan_invoice() orchestrator with prepare_variants + ocr_prepass + Claude API
+  - Model selection: light/normal -> claude-sonnet-4-20250514, heavy -> claude-opus-4-0-20250514
+  - _call_claude() with vision content blocks (base64 images), _parse_json_response() with fence stripping
+  - Error handling: API errors, JSON parse failures, unexpected exceptions all return structured error result
+  - views.py: replaced dummy endpoint with real scan_invoice engine call
+  - Debug mode: ?debug=true returns elapsed time, model, OCR text, quality report
+  - 146 total passing tests (93 preprocessing + 53 scanning — all mocked, no real API calls)
+  - Security: no API keys in source, input validation via serializer, safe JSON parsing, 10MB upload limit
+  - Files: scanner/scanning/prompts.py, scanner/scanning/engine.py, scanner/views.py, tests/test_scanning.py
 Phase 09:  [ ] Not started — Three-pass scanning with tiebreaker
 Phase 10:  [ ] Not started — Mathematical cross-validation
 Phase 11:  [ ] Not started — Memory interfaces + JSON storage
