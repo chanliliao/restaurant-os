@@ -498,7 +498,14 @@ Phase 03:  [x] Complete — Orientation & skew correction
   - All functions accept both PIL Image and numpy array inputs
   - 22 passing tests with programmatically generated fixtures
   - Files: scanner/preprocessing/orientation.py, tests/test_preprocessing.py
-Phase 04:  [ ] Not started — Quality assessment
+Phase 04:  [x] Complete — Quality assessment
+  - analyze_quality(): measures brightness, contrast, blur, noise, resolution
+  - Robust noise estimation using Immerkaer median-Laplacian method
+  - Returns structured report with per-metric values, issues, and overall_quality (good/fair/poor)
+  - Accepts both PIL Image and numpy array inputs
+  - 34 total passing tests (22 orientation + 12 analyzer)
+  - Security: no file I/O, no shell commands, all in-memory processing
+  - Files: scanner/preprocessing/analyzer.py, tests/test_preprocessing.py
 Phase 05:  [ ] Not started — Selective image processing
 Phase 06:  [ ] Not started — ROI segmentation
 Phase 07:  [ ] Not started — OCR pre-pass
