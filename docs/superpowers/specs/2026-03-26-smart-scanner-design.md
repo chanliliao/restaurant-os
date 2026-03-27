@@ -515,7 +515,15 @@ Phase 05:  [x] Complete — Selective image processing
   - 66 total passing tests (22 orientation + 12 analyzer + 32 processor)
   - Security: no file I/O, no shell commands, all in-memory processing
   - Files: scanner/preprocessing/processor.py, tests/test_preprocessing.py
-Phase 06:  [ ] Not started — ROI segmentation
+Phase 06:  [x] Complete — ROI segmentation
+  - detect_regions: morphological horizontal line detection to find invoice dividers
+  - crop_regions: crops image into detected bounding boxes, returns dict of PIL Images
+  - segment_invoice: orchestrator with three strategies — line detection, heuristic (25/50/25), full-image fallback
+  - Returns header, line_items, totals regions plus full image, bounding boxes, and detection status
+  - Heuristic fallback when no clear dividers found; full-image fallback for tiny images (<50px)
+  - 87 total passing tests (22 orientation + 12 analyzer + 32 processor + 21 segmentation)
+  - Security: no file I/O, no shell commands, all in-memory processing
+  - Files: scanner/preprocessing/segmentation.py, tests/test_preprocessing.py
 Phase 07:  [ ] Not started — OCR pre-pass
 Phase 08:  [ ] Not started — Single scan with Claude
 Phase 09:  [ ] Not started — Three-pass scanning with tiebreaker
