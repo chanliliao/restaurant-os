@@ -567,7 +567,13 @@ Phase 11:  [x] Complete  — Memory interfaces + JSON storage
   - Running price averages for item history, supplier index auto-maintenance
   - 246 total passing tests (208 existing + 38 new memory tests)
   - Files: scanner/memory/interface.py, scanner/memory/json_store.py, scanner/memory/__init__.py, tests/test_memory.py
-Phase 12:  [ ] Not started — Three-tier inference system
+Phase 12:  [x] Complete — Three-tier inference system
+  - infer_field() cascades through supplier memory (conf 80) -> industry memory (conf 60) -> AI reasoning via Claude Sonnet (conf 50)
+  - run_inference() scans all fields below confidence threshold, fills missing values, tracks tier used in metadata
+  - Item-level inference for unit_price and unit from supplier history and industry catalog
+  - Wired into scan_invoice() after math validation step
+  - 292 total passing tests (246 existing + 46 new inference tests)
+  - Files: scanner/memory/inference.py, scanner/memory/__init__.py (updated exports), scanner/scanning/engine.py (wired in), tests/test_inference.py
 Phase 13:  [ ] Not started — Editable result form UI (React)
 Phase 14:  [ ] Not started — Memory learning from user corrections
 Phase 15:  [ ] Not started — Supplier layout mapping

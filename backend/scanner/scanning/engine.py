@@ -22,6 +22,8 @@ from scanner.scanning.prompts import (
     build_scan_prompt_v2,
     build_tiebreaker_prompt,
 )
+from scanner.memory import JsonGeneralMemory, JsonSupplierMemory, normalize_supplier_id
+from scanner.memory.inference import run_inference
 from scanner.scanning.comparator import compare_scans, merge_results
 from scanner.scanning.validator import validate_math, auto_correct
 
@@ -226,7 +228,20 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             result = auto_correct(result, validation["errors"])
             math_validation_triggered = True
 
-        # Step 7: Attach scan metadata
+        # Step 7: Three-tier inference for missing/low-confidence fields
+        try:
+            supplier_name = result.get("supplier", "")
+            if supplier_name:
+                sid = normalize_supplier_id(supplier_name)
+            else:
+                sid = None
+            supplier_mem = JsonSupplierMemory()
+            general_mem = JsonGeneralMemory()
+            result = run_inference(result, sid, supplier_mem, general_mem)
+        except Exception as e:
+            logger.warning("Inference step failed (non-fatal): %s", e)
+
+        # Step 8: Attach scan metadata
         elapsed = time.time() - start_time
         sonnet_count = sum(1 for m in models_used if m == SONNET)
         opus_count = sum(1 for m in models_used if m == OPUS)

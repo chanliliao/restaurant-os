@@ -1,5 +1,6 @@
 """SmartScanner memory system for supplier and industry data."""
 
+from .inference import infer_field, run_inference
 from .interface import GeneralMemory, SupplierMemory
 from .json_store import (
     JsonGeneralMemory,
@@ -13,4 +14,6 @@ __all__ = [
     "JsonSupplierMemory",
     "JsonGeneralMemory",
     "normalize_supplier_id",
+    "infer_field",
+    "run_inference",
 ]
