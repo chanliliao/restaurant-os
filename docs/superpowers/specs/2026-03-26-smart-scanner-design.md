@@ -13,19 +13,28 @@ Monolithic Django application. All processing happens in-process. Designed with 
 - Django 5.x
 - Anthropic Python SDK (Claude Opus for scanning)
 - Pillow + OpenCV for image preprocessing
+- Tesseract OCR (pytesseract) for complementary text extraction
 - JSON files for storage (prototype), SQLite for production
 
 ## 1. Image Preprocessing Pipeline
 
-### Quality Assessment
-Analyze uploaded images using Pillow/OpenCV to measure:
+### Step 1: Orientation & Skew Correction
+Before any quality-based preprocessing, fix geometric issues:
+- **Auto-rotation** — detect and correct 90/180/270 degree rotations using EXIF data and orientation detection
+- **Deskewing** — detect tilt angle using Hough line transform and rotate to align text horizontally
+- **Perspective correction** — detect trapezoidal distortion (photo taken at angle) and apply perspective warp to produce a flat, rectangular image
+
+This step is critical — a tilted or rotated image is one of the biggest sources of misreads.
+
+### Step 2: Quality Assessment
+Analyze the corrected image using Pillow/OpenCV to measure:
 - Brightness (mean pixel intensity)
 - Contrast (standard deviation of pixel values)
 - Blur level (Laplacian variance)
 - Noise level (high-frequency component analysis)
 - Resolution (pixel dimensions)
 
-### Selective Processing
+### Step 3: Selective Processing
 Only apply needed transformations based on quality assessment:
 - Low contrast → histogram equalization
 - Blurry → sharpening filter
@@ -33,25 +42,56 @@ Only apply needed transformations based on quality assessment:
 - Low resolution → Lanczos upscaling
 - Color issues → grayscale conversion
 
-The original image is always preserved. Preprocessed version is used for scanning only.
+### Step 4: Multi-Variant Image Preparation
+Produce two image variants for each scan pass:
+- **Original** (after orientation/skew correction only)
+- **Preprocessed** (after all selective processing)
 
-## 2. Three-Pass Scanning Pipeline
+Both variants are sent to Claude in the same message so the model can cross-reference both. This handles cases where preprocessing helps some areas but hurts others (e.g., over-sharpening artifacts obscuring small text).
+
+The original uploaded image is always preserved separately.
+
+## 2. Region-of-Interest Segmentation
+
+Before scanning, detect and crop the image into focused regions:
+- **Header region** — supplier name, address, date, invoice number
+- **Line items region** — the table of items with names, quantities, prices
+- **Totals region** — subtotal, tax, total, payment info
+
+Each region is scanned separately with focused prompts tuned to that region's content. Smaller, targeted areas yield higher per-field accuracy than scanning the whole image at once.
+
+If region detection fails (e.g., unusual layout), fall back to full-image scanning.
+
+## 3. OCR Pre-Pass
+
+Run Tesseract OCR on the preprocessed image before sending to Claude. The OCR text is passed alongside the image in the Claude prompt as supplementary data. This gives the model two sources of information to cross-reference — especially helpful for small, faded, or low-contrast text that vision alone might miss.
+
+## 4. Three-Pass Scanning Pipeline
 
 ### Scan 1 (Primary)
-Send preprocessed image to Claude Opus with a structured prompt requesting flat JSON extraction of all invoice fields.
+For each region (or full image if no regions detected), send both image variants (original + preprocessed) plus the Tesseract OCR text to Claude Opus with a structured prompt requesting flat JSON extraction.
 
 ### Scan 2 (Confirmation)
-Send the same image with a differently worded prompt (to avoid echo bias). Compare results field-by-field against Scan 1.
+Send the same inputs with a differently worded prompt (to avoid echo bias). Compare results field-by-field against Scan 1.
 
 ### Scan 3 (Tiebreaker)
 Only triggered when Scans 1 and 2 disagree on any field. Sends the image with a focused prompt targeting ONLY the disagreed fields, plus context from both previous results. The tiebreaker result is final.
+
+### Mathematical Cross-Validation
+After all scan passes complete, run arithmetic checks on the final result:
+- `qty × price = line total` for each item
+- `sum of line totals = subtotal`
+- `subtotal + tax = total`
+- `tax / subtotal ≈ expected tax rate` (within tolerance)
+
+If any math doesn't check out, send the specific contradiction back to Claude with the image and ask it to re-examine those fields. This catches errors that even three agreeing scans might get wrong.
 
 ### Field Comparison Logic
 - String fields: fuzzy matching (handle minor formatting differences)
 - Numeric fields: exact match required
 - Array fields (items): match by item name, compare qty/price individually
 
-## 3. Two-Tier Inference System
+## 5. Two-Tier Inference System
 
 ### Tier 1: Historical Pattern Matching
 Check the supplier profile for known values:
@@ -68,7 +108,7 @@ When no historical data exists, make another Claude call with:
 
 All inferred fields are flagged in a `confidence` object in the output.
 
-## 4. Supplier Memory System
+## 6. Supplier Memory System
 
 ### Storage Structure (JSON Prototype)
 ```
@@ -91,7 +131,7 @@ After each successful scan, update the supplier profile with:
 ### Storage Interface
 `SupplierMemory` class with methods: `get_profile()`, `save_scan()`, `infer_missing()`. When migrating to SQLite, swap the implementation behind this interface.
 
-## 5. Output Format
+## 7. Output Format
 
 Flat JSON structure:
 ```json
@@ -115,8 +155,9 @@ The `confidence` object flags any fields that were:
 - `inferred_from_history` — filled from supplier profile
 - `inferred_from_context` — filled by AI contextual reasoning
 - `tiebreaker_resolved` — disagreed between scan 1 and 2, resolved by scan 3
+- `math_corrected` — corrected by mathematical cross-validation
 
-## 6. Django UI
+## 8. Django UI
 
 ### Single Page
 - Drag-and-drop zone (HTML5 drag/drop + file browse fallback)
@@ -130,7 +171,7 @@ The `confidence` object flags any fields that were:
 ### Frontend
 Vanilla HTML/CSS/JS. No framework. Minimal and functional for prototype.
 
-## 7. Project Structure
+## 9. Project Structure
 
 ```
 SmartScanner/
@@ -146,12 +187,16 @@ SmartScanner/
 │   ├── views.py
 │   ├── urls.py
 │   ├── preprocessing/
+│   │   ├── orientation.py      # Rotation, deskew, perspective correction
 │   │   ├── analyzer.py         # Quality assessment
-│   │   └── processor.py        # Selective image processing
+│   │   ├── processor.py        # Selective image processing
+│   │   └── segmentation.py     # Region-of-interest detection and cropping
 │   ├── scanning/
+│   │   ├── ocr.py              # Tesseract OCR pre-pass
 │   │   ├── engine.py           # Three-pass scan orchestration
 │   │   ├── prompts.py          # Claude prompt templates
-│   │   └── comparator.py       # Field-by-field comparison
+│   │   ├── comparator.py       # Field-by-field comparison
+│   │   └── validator.py        # Mathematical cross-validation
 │   ├── memory/
 │   │   ├── interface.py        # SupplierMemory abstract interface
 │   │   ├── json_store.py       # JSON file implementation
@@ -180,3 +225,8 @@ SmartScanner/
 | Scan disagreement | Third tiebreaker scan | Most accurate, fully automated |
 | AI model | Claude Opus | Best vision capabilities for scanning |
 | Frontend | Vanilla HTML/CSS/JS | No framework overhead for prototype |
+| Orientation fix | Auto-detect rotation, skew, perspective | Tilted images are #1 misread source |
+| ROI segmentation | Crop header/items/totals regions | Focused scanning = higher per-field accuracy |
+| OCR pre-pass | Tesseract alongside Claude vision | Two data sources cross-reference |
+| Multi-variant images | Send original + preprocessed together | Handles over-processing artifacts |
+| Math validation | Post-scan arithmetic checks | Catches errors all 3 scans agree on |
