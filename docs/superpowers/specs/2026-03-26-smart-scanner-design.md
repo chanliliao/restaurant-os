@@ -543,7 +543,14 @@ Phase 08:  [x] Complete — Single scan with Claude
   - 146 total passing tests (93 preprocessing + 53 scanning — all mocked, no real API calls)
   - Security: no API keys in source, input validation via serializer, safe JSON parsing, 10MB upload limit
   - Files: scanner/scanning/prompts.py, scanner/scanning/engine.py, scanner/views.py, tests/test_scanning.py
-Phase 09:  [ ] Not started — Three-pass scanning with tiebreaker
+Phase 09:  [x] Complete — Three-pass scanning with tiebreaker
+  - Three-pass pipeline: Scan 1 (primary) + Scan 2 (confirmation) + optional Scan 3 (tiebreaker)
+  - Field-by-field comparator with fuzzy string matching (difflib, threshold 0.85) and exact numeric matching
+  - Tiebreaker only triggered when disagreements exist (saves API calls when scans agree)
+  - Mode-based model selection: light=all Sonnet, normal=Sonnet+Sonnet+Opus, heavy=all Opus
+  - scan_metadata includes: scans_performed, tiebreaker_triggered, agreement_ratio, models_used, api_calls
+  - 188 total passing tests (93 preprocessing + 95 scanning — all mocked, no real API calls)
+  - Files: scanner/scanning/prompts.py, scanner/scanning/comparator.py, scanner/scanning/engine.py, scanner/scanning/__init__.py, tests/test_scanning.py
 Phase 10:  [ ] Not started — Mathematical cross-validation
 Phase 11:  [ ] Not started — Memory interfaces + JSON storage
 Phase 12:  [ ] Not started — Three-tier inference system
