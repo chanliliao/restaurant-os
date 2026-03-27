@@ -1,8 +1,9 @@
 """
-Single scan engine for invoice processing with Claude.
+Three-pass scan engine for invoice processing with Claude.
 
-Orchestrates the full pipeline: preprocessing, OCR pre-pass, Claude API call,
-and JSON parsing to produce structured invoice data.
+Orchestrates the full pipeline: preprocessing, OCR pre-pass, two independent
+Claude API scans, field-by-field comparison, and optional tiebreaker scan
+when disagreements are found.
 """
 
 import base64
@@ -16,7 +17,12 @@ from PIL import Image
 
 from scanner.preprocessing import prepare_variants
 from scanner.scanning.ocr import ocr_prepass
-from scanner.scanning.prompts import build_scan_prompt
+from scanner.scanning.prompts import (
+    build_scan_prompt,
+    build_scan_prompt_v2,
+    build_tiebreaker_prompt,
+)
+from scanner.scanning.comparator import compare_scans, merge_results
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +32,28 @@ MODEL_MAP = {
     "normal": "claude-sonnet-4-20250514",
     "heavy": "claude-opus-4-0-20250514",
 }
+
+SONNET = "claude-sonnet-4-20250514"
+OPUS = "claude-opus-4-0-20250514"
+
+
+def _get_model_for_scan(mode: str, scan_number: int) -> str:
+    """
+    Return the correct model for a given mode and scan number.
+
+    Args:
+        mode: "light", "normal", or "heavy".
+        scan_number: 1 (primary), 2 (confirmation), or 3 (tiebreaker).
+
+    Returns:
+        Model identifier string.
+    """
+    if mode == "heavy":
+        return OPUS
+    elif mode == "normal":
+        return SONNET if scan_number in (1, 2) else OPUS
+    else:  # light
+        return SONNET
 
 
 def _encode_image_base64(pil_image: Image.Image, fmt: str = "PNG") -> str:
@@ -113,15 +141,14 @@ def _parse_json_response(text: str) -> dict:
 
 def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) -> dict:
     """
-    Full single-scan pipeline for an invoice image.
+    Three-pass scan pipeline for an invoice image.
 
-    1. Opens image from bytes
-    2. Runs prepare_variants() for preprocessing
-    3. Runs ocr_prepass() for supplementary text
-    4. Encodes both image variants as base64
-    5. Calls Claude API with prompt + images + OCR text
-    6. Parses JSON response
-    7. Returns structured result with scan_metadata
+    1. Opens image from bytes and preprocesses
+    2. Scan 1: Primary extraction with build_scan_prompt
+    3. Scan 2: Confirmation extraction with build_scan_prompt_v2
+    4. Compare: Field-by-field comparison of both results
+    5. If disagreements exist → Scan 3: Tiebreaker with both results
+    6. Merge and return structured result with scan_metadata
 
     Args:
         image_bytes: Raw image file bytes.
@@ -133,22 +160,20 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         and scan_metadata.
     """
     start_time = time.time()
-    model = MODEL_MAP.get(mode, MODEL_MAP["normal"])
+    models_used = []
+    api_calls = 0
 
     try:
-        # Step 1: Open image
+        # Step 1: Open image and preprocess
         image = Image.open(io.BytesIO(image_bytes))
         image.load()  # Force load to catch corrupt images early
 
-        # Step 2: Preprocess
         variants = prepare_variants(image)
         original = variants["original"]
         preprocessed = variants["preprocessed"]
 
-        # Step 3: OCR pre-pass on preprocessed image
         ocr_text = ocr_prepass(preprocessed)
 
-        # Step 4: Encode images as base64
         images = [
             {
                 "base64": _encode_image_base64(original),
@@ -160,33 +185,78 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             },
         ]
 
-        # Step 5: Build prompt and call Claude
-        prompt = build_scan_prompt(ocr_text)
-        response_text = _call_claude(prompt, images, model)
+        # Step 2: Scan 1 — Primary extraction
+        model1 = _get_model_for_scan(mode, 1)
+        prompt1 = build_scan_prompt(ocr_text)
+        response1 = _call_claude(prompt1, images, model1)
+        scan1 = _parse_json_response(response1)
+        models_used.append(model1)
+        api_calls += 1
 
-        # Step 6: Parse JSON
-        result = _parse_json_response(response_text)
+        # Step 3: Scan 2 — Confirmation extraction
+        model2 = _get_model_for_scan(mode, 2)
+        prompt2 = build_scan_prompt_v2(ocr_text)
+        response2 = _call_claude(prompt2, images, model2)
+        scan2 = _parse_json_response(response2)
+        models_used.append(model2)
+        api_calls += 1
+
+        # Step 4: Compare results
+        comparison = compare_scans(scan1, scan2)
+        agreement_ratio = comparison["agreement_ratio"]
+        tiebreaker_triggered = False
+        tiebreaker_result = None
+
+        # Step 5: Tiebreaker if disagreements exist
+        has_disagreements = (
+            len(comparison["disagreed"]) > 0
+            or len(comparison["items_comparison"]["disagreed"]) > 0
+        )
+
+        if has_disagreements:
+            tiebreaker_triggered = True
+            model3 = _get_model_for_scan(mode, 3)
+            prompt3 = build_tiebreaker_prompt(scan1, scan2, ocr_text)
+            response3 = _call_claude(prompt3, images, model3)
+            tiebreaker_result = _parse_json_response(response3)
+            models_used.append(model3)
+            api_calls += 1
+
+        # Step 6: Merge results
+        result = merge_results(scan1, scan2, tiebreaker_result)
 
         # Step 7: Attach scan metadata
         elapsed = time.time() - start_time
-        is_opus = model == MODEL_MAP["heavy"]
+        sonnet_count = sum(1 for m in models_used if m == SONNET)
+        opus_count = sum(1 for m in models_used if m == OPUS)
+
         result["scan_metadata"] = {
             "mode": mode,
-            "scan_passes": 1,
-            "tiebreaker_triggered": False,
+            "scan_passes": api_calls,
+            "scans_performed": api_calls,
+            "tiebreaker_triggered": tiebreaker_triggered,
+            "agreement_ratio": agreement_ratio,
             "math_validation_triggered": False,
             "api_calls": {
-                "sonnet": 0 if is_opus else 1,
-                "opus": 1 if is_opus else 0,
+                "sonnet": sonnet_count,
+                "opus": opus_count,
             },
+            "models_used": models_used,
         }
 
         if debug:
             result["scan_metadata"]["debug"] = {
                 "elapsed_seconds": round(elapsed, 2),
-                "model": model,
+                "models_used": models_used,
                 "ocr_text": ocr_text,
                 "quality_report": variants["quality_report"],
+                "agreement_ratio": agreement_ratio,
+                "comparison_details": {
+                    "agreed_fields": list(comparison["agreed"].keys()),
+                    "disagreed_fields": list(comparison["disagreed"].keys()),
+                    "agreed_items": len(comparison["items_comparison"]["agreed"]),
+                    "disagreed_items": len(comparison["items_comparison"]["disagreed"]),
+                },
             }
 
         return result
@@ -231,9 +301,12 @@ def _error_result(mode: str, error_message: str) -> dict:
         "scan_metadata": {
             "mode": mode,
             "scan_passes": 0,
+            "scans_performed": 0,
             "tiebreaker_triggered": False,
+            "agreement_ratio": 0.0,
             "math_validation_triggered": False,
             "api_calls": {"sonnet": 0, "opus": 0},
+            "models_used": [],
             "error": error_message,
         },
     }

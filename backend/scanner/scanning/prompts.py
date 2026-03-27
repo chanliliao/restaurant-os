@@ -88,3 +88,185 @@ Use both images together to maximize extraction accuracy.
     }}
 }}"""
     return prompt
+
+
+def build_scan_prompt_v2(ocr_text: str = "") -> str:
+    """
+    Build an alternative prompt for the confirmation scan (scan 2).
+
+    Uses a different extraction strategy (item-first, bottom-up) to
+    independently verify the primary scan results.
+
+    Args:
+        ocr_text: Supplementary OCR text extracted by Tesseract pre-pass.
+
+    Returns:
+        Prompt string to send to Claude along with invoice images.
+    """
+    ocr_section = ""
+    if ocr_text.strip():
+        ocr_section = (
+            "\n\n## Reference OCR Text\n"
+            "Below is machine-extracted text from the invoice. It may contain "
+            "errors — use the images as ground truth and this text only as a "
+            "cross-reference.\n\n"
+            f"```\n{ocr_text.strip().replace('```', '---')}\n```"
+        )
+
+    prompt = f"""You are a meticulous invoice auditor for restaurant supply chains.
+
+## Task
+Carefully extract every piece of structured data from the invoice image(s) provided.
+You receive two image variants:
+1. The original scan (orientation-corrected)
+2. An enhanced version (contrast-boosted, denoised, grayscale)
+
+## Extraction Strategy
+Follow this bottom-up approach:
+1. **Start with line items** — identify every product, its quantity, unit, unit price, and line total.
+2. **Then extract totals** — find subtotal, tax, and grand total. Cross-check against line item sums.
+3. **Finally extract header info** — supplier name, invoice date, invoice/receipt number.
+
+## Output Rules
+- Provide a confidence score (0-100) for each top-level field.
+- Provide an inference_source for each top-level field:
+  - "scanned" — clearly visible on the invoice
+  - "inferred" — deduced from context or calculated
+  - "missing" — not found on the invoice
+- Each line item gets its own confidence score.
+- Use null for unknown numeric fields, empty string for unknown text fields.
+- Dates in ISO format (YYYY-MM-DD).
+- Currency values as plain numbers (no symbols).
+- Respond with valid JSON only — no markdown, no explanation.
+{ocr_section}
+
+## Required JSON Output Schema
+{{
+    "supplier": "string — supplier/vendor name",
+    "date": "string — invoice date in YYYY-MM-DD format",
+    "invoice_number": "string — invoice or receipt number",
+    "items": [
+        {{
+            "name": "string — item description",
+            "quantity": 0,
+            "unit": "string — unit of measure (ea, kg, lb, case, etc.)",
+            "unit_price": 0.00,
+            "total": 0.00,
+            "confidence": 0
+        }}
+    ],
+    "subtotal": 0.00,
+    "tax": 0.00,
+    "total": 0.00,
+    "confidence": {{
+        "supplier": 0,
+        "date": 0,
+        "invoice_number": 0,
+        "subtotal": 0,
+        "tax": 0,
+        "total": 0
+    }},
+    "inference_sources": {{
+        "supplier": "scanned|inferred|missing",
+        "date": "scanned|inferred|missing",
+        "invoice_number": "scanned|inferred|missing",
+        "subtotal": "scanned|inferred|missing",
+        "tax": "scanned|inferred|missing",
+        "total": "scanned|inferred|missing"
+    }}
+}}"""
+    return prompt
+
+
+def build_tiebreaker_prompt(
+    scan1_result: dict, scan2_result: dict, ocr_text: str = ""
+) -> str:
+    """
+    Build a tiebreaker prompt that shows two conflicting scan results
+    and asks Claude to resolve disagreements field by field.
+
+    Args:
+        scan1_result: Parsed JSON from the first scan.
+        scan2_result: Parsed JSON from the second scan.
+        ocr_text: Supplementary OCR text for additional context.
+
+    Returns:
+        Prompt string for the tiebreaker scan.
+    """
+    import json
+
+    # Strip metadata from scan results before showing to Claude
+    def _clean(result: dict) -> dict:
+        cleaned = {k: v for k, v in result.items() if k != "scan_metadata"}
+        return cleaned
+
+    scan1_json = json.dumps(_clean(scan1_result), indent=2)
+    scan2_json = json.dumps(_clean(scan2_result), indent=2)
+
+    ocr_section = ""
+    if ocr_text.strip():
+        ocr_section = (
+            "\n\n## Supplementary OCR Text\n"
+            f"```\n{ocr_text.strip().replace('```', '---')}\n```"
+        )
+
+    prompt = f"""You are an expert invoice arbitrator. Two independent scans of the same invoice produced different results. Your job is to examine the original invoice images and resolve every disagreement.
+
+## Scan 1 Result
+```json
+{scan1_json}
+```
+
+## Scan 2 Result
+```json
+{scan2_json}
+```
+{ocr_section}
+
+## Instructions
+1. You are provided with two image variants of the invoice (original + enhanced).
+2. For each field where Scan 1 and Scan 2 disagree, look at the images carefully and determine the correct value.
+3. For fields where both scans agree, keep that value.
+4. Pay special attention to:
+   - Item names (slight spelling differences)
+   - Numeric values (quantities, prices, totals)
+   - Date formats
+5. Provide confidence scores and inference sources as usual.
+6. Respond with valid JSON only — no markdown, no explanation.
+
+## Required JSON Output Schema
+{{
+    "supplier": "string — supplier/vendor name",
+    "date": "string — invoice date in YYYY-MM-DD format",
+    "invoice_number": "string — invoice or receipt number",
+    "items": [
+        {{
+            "name": "string — item description",
+            "quantity": 0,
+            "unit": "string — unit of measure (ea, kg, lb, case, etc.)",
+            "unit_price": 0.00,
+            "total": 0.00,
+            "confidence": 0
+        }}
+    ],
+    "subtotal": 0.00,
+    "tax": 0.00,
+    "total": 0.00,
+    "confidence": {{
+        "supplier": 0,
+        "date": 0,
+        "invoice_number": 0,
+        "subtotal": 0,
+        "tax": 0,
+        "total": 0
+    }},
+    "inference_sources": {{
+        "supplier": "scanned|inferred|missing",
+        "date": "scanned|inferred|missing",
+        "invoice_number": "scanned|inferred|missing",
+        "subtotal": "scanned|inferred|missing",
+        "tax": "scanned|inferred|missing",
+        "total": "scanned|inferred|missing"
+    }}
+}}"""
+    return prompt

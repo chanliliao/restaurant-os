@@ -1,5 +1,5 @@
 """
-Tests for scanner.scanning module (OCR + prompts + engine).
+Tests for scanner.scanning module (OCR + prompts + engine + comparator).
 
 All tests mock external dependencies (pytesseract, Anthropic API)
 so they work without Tesseract installed and without real API calls.
@@ -7,6 +7,7 @@ so they work without Tesseract installed and without real API calls.
 
 import io
 import json
+import copy
 
 import numpy as np
 import pytest
@@ -14,14 +15,28 @@ from unittest.mock import patch, MagicMock
 from PIL import Image
 
 from scanner.scanning.ocr import extract_text, extract_text_from_regions, ocr_prepass
-from scanner.scanning.prompts import build_scan_prompt
+from scanner.scanning.prompts import (
+    build_scan_prompt,
+    build_scan_prompt_v2,
+    build_tiebreaker_prompt,
+)
+from scanner.scanning.comparator import (
+    compare_scans,
+    merge_results,
+    _fuzzy_match,
+    _numeric_match,
+    _fuzzy_ratio,
+)
 from scanner.scanning.engine import (
     scan_invoice,
     _call_claude,
     _parse_json_response,
     _encode_image_base64,
     _error_result,
+    _get_model_for_scan,
     MODEL_MAP,
+    SONNET,
+    OPUS,
 )
 
 
@@ -84,6 +99,20 @@ MOCK_CLAUDE_JSON = {
         "total": "scanned",
     },
 }
+
+# A second scan result that agrees with the first
+MOCK_CLAUDE_JSON_AGREE = copy.deepcopy(MOCK_CLAUDE_JSON)
+
+# A second scan result that disagrees on some fields
+MOCK_CLAUDE_JSON_DISAGREE = copy.deepcopy(MOCK_CLAUDE_JSON)
+MOCK_CLAUDE_JSON_DISAGREE["supplier"] = "Fresh Food Inc"  # slightly different
+MOCK_CLAUDE_JSON_DISAGREE["total"] = 24.00  # different number
+MOCK_CLAUDE_JSON_DISAGREE["items"][0]["quantity"] = 6  # different quantity
+
+# A tiebreaker result that resolves disagreements
+MOCK_TIEBREAKER_JSON = copy.deepcopy(MOCK_CLAUDE_JSON)
+MOCK_TIEBREAKER_JSON["supplier"] = "Fresh Foods Inc."
+MOCK_TIEBREAKER_JSON["total"] = 23.65
 
 
 # ===========================================================================
@@ -279,6 +308,82 @@ class TestBuildScanPrompt:
 
 
 # ===========================================================================
+# Phase 09 — Prompt V2 Tests
+# ===========================================================================
+
+class TestBuildScanPromptV2:
+    """Tests for the build_scan_prompt_v2 function."""
+
+    def test_returns_string(self):
+        result = build_scan_prompt_v2()
+        assert isinstance(result, str)
+
+    def test_contains_json_schema_keywords(self):
+        result = build_scan_prompt_v2()
+        assert "supplier" in result
+        assert "invoice_number" in result
+        assert "confidence" in result
+        assert "inference_sources" in result
+        assert "items" in result
+
+    def test_different_from_v1(self):
+        v1 = build_scan_prompt()
+        v2 = build_scan_prompt_v2()
+        assert v1 != v2
+
+    def test_mentions_bottom_up_strategy(self):
+        result = build_scan_prompt_v2()
+        assert "bottom-up" in result.lower() or "line items" in result.lower()
+
+    def test_includes_ocr_text_when_provided(self):
+        result = build_scan_prompt_v2("Invoice #999")
+        assert "Invoice #999" in result
+
+    def test_omits_ocr_section_when_empty(self):
+        result = build_scan_prompt_v2("")
+        assert "Reference OCR Text" not in result
+
+    def test_instructs_json_output(self):
+        result = build_scan_prompt_v2()
+        assert "JSON" in result
+
+
+class TestBuildTiebreakerPrompt:
+    """Tests for the build_tiebreaker_prompt function."""
+
+    def test_returns_string(self):
+        result = build_tiebreaker_prompt(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE)
+        assert isinstance(result, str)
+
+    def test_contains_both_scan_results(self):
+        result = build_tiebreaker_prompt(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE)
+        assert "Scan 1" in result
+        assert "Scan 2" in result
+        assert "Fresh Foods Inc." in result
+        assert "Fresh Food Inc" in result
+
+    def test_instructs_resolution(self):
+        result = build_tiebreaker_prompt(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE)
+        assert "disagree" in result.lower() or "disagreement" in result.lower()
+
+    def test_includes_ocr_when_provided(self):
+        result = build_tiebreaker_prompt(
+            MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE, "OCR text here"
+        )
+        assert "OCR text here" in result
+
+    def test_omits_ocr_when_empty(self):
+        result = build_tiebreaker_prompt(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE, "")
+        assert "Supplementary OCR Text" not in result
+
+    def test_strips_scan_metadata(self):
+        scan_with_meta = copy.deepcopy(MOCK_CLAUDE_JSON)
+        scan_with_meta["scan_metadata"] = {"mode": "normal"}
+        result = build_tiebreaker_prompt(scan_with_meta, MOCK_CLAUDE_JSON_DISAGREE)
+        assert "scan_metadata" not in result
+
+
+# ===========================================================================
 # Phase 08 — Engine Helper Tests
 # ===========================================================================
 
@@ -340,6 +445,29 @@ class TestModelMap:
         assert MODEL_MAP["heavy"] == "claude-opus-4-0-20250514"
 
 
+# ===========================================================================
+# Phase 09 — Model Selection per Scan Tests
+# ===========================================================================
+
+class TestGetModelForScan:
+    """Tests for _get_model_for_scan."""
+
+    def test_light_all_sonnet(self):
+        assert _get_model_for_scan("light", 1) == SONNET
+        assert _get_model_for_scan("light", 2) == SONNET
+        assert _get_model_for_scan("light", 3) == SONNET
+
+    def test_normal_sonnet_for_scans_1_2_opus_for_tiebreaker(self):
+        assert _get_model_for_scan("normal", 1) == SONNET
+        assert _get_model_for_scan("normal", 2) == SONNET
+        assert _get_model_for_scan("normal", 3) == OPUS
+
+    def test_heavy_all_opus(self):
+        assert _get_model_for_scan("heavy", 1) == OPUS
+        assert _get_model_for_scan("heavy", 2) == OPUS
+        assert _get_model_for_scan("heavy", 3) == OPUS
+
+
 class TestErrorResult:
     """Tests for _error_result helper."""
 
@@ -353,6 +481,15 @@ class TestErrorResult:
         assert result["scan_metadata"]["mode"] == "normal"
         assert result["scan_metadata"]["error"] == "something broke"
         assert result["scan_metadata"]["scan_passes"] == 0
+
+    def test_error_result_has_phase09_metadata(self):
+        result = _error_result("normal", "test")
+        meta = result["scan_metadata"]
+        assert "scans_performed" in meta
+        assert "tiebreaker_triggered" in meta
+        assert "agreement_ratio" in meta
+        assert "models_used" in meta
+        assert meta["models_used"] == []
 
 
 # ===========================================================================
@@ -412,90 +549,299 @@ class TestCallClaude:
 
 
 # ===========================================================================
-# Phase 08 — scan_invoice Integration Tests (mocked)
+# Phase 09 — Comparator Tests
 # ===========================================================================
 
-class TestScanInvoice:
-    """Tests for the scan_invoice orchestrator with all dependencies mocked."""
+class TestFuzzyMatch:
+    """Tests for fuzzy string matching helpers."""
+
+    def test_exact_match(self):
+        assert _fuzzy_match("Fresh Foods Inc.", "Fresh Foods Inc.") is True
+
+    def test_close_match(self):
+        assert _fuzzy_match("Fresh Foods Inc.", "Fresh Foods Inc") is True
+
+    def test_different_case(self):
+        assert _fuzzy_match("FRESH FOODS", "fresh foods") is True
+
+    def test_clearly_different(self):
+        assert _fuzzy_match("Fresh Foods Inc.", "Ocean Supplies Ltd.") is False
+
+    def test_empty_strings(self):
+        assert _fuzzy_match("", "") is True  # both empty
+        assert _fuzzy_match("something", "") is False
+        assert _fuzzy_match("", "something") is False
+
+    def test_fuzzy_ratio_returns_float(self):
+        ratio = _fuzzy_ratio("hello", "hello")
+        assert ratio == 1.0
+        ratio = _fuzzy_ratio("hello", "world")
+        assert 0.0 <= ratio <= 1.0
+
+
+class TestNumericMatch:
+    """Tests for numeric matching."""
+
+    def test_exact_match(self):
+        assert _numeric_match(23.65, 23.65) is True
+
+    def test_int_float_match(self):
+        assert _numeric_match(5, 5.0) is True
+
+    def test_different_values(self):
+        assert _numeric_match(23.65, 24.00) is False
+
+    def test_both_none(self):
+        assert _numeric_match(None, None) is True
+
+    def test_one_none(self):
+        assert _numeric_match(23.65, None) is False
+        assert _numeric_match(None, 23.65) is False
+
+
+class TestCompareScans:
+    """Tests for compare_scans."""
+
+    def test_identical_scans_full_agreement(self):
+        result = compare_scans(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_AGREE)
+        assert result["agreement_ratio"] == 1.0
+        assert len(result["disagreed"]) == 0
+        assert len(result["items_comparison"]["disagreed"]) == 0
+
+    def test_disagreeing_scans_detected(self):
+        result = compare_scans(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE)
+        assert result["agreement_ratio"] < 1.0
+        # total should disagree (23.65 vs 24.00)
+        assert "total" in result["disagreed"]
+        # items should have disagreement (quantity 5 vs 6)
+        assert len(result["items_comparison"]["disagreed"]) > 0
+
+    def test_fuzzy_supplier_match(self):
+        # "Fresh Foods Inc." vs "Fresh Food Inc" — close enough
+        scan2 = copy.deepcopy(MOCK_CLAUDE_JSON)
+        scan2["supplier"] = "Fresh Foods Inc"  # missing period
+        result = compare_scans(MOCK_CLAUDE_JSON, scan2)
+        assert "supplier" in result["agreed"]
+
+    def test_supplier_clearly_different(self):
+        scan2 = copy.deepcopy(MOCK_CLAUDE_JSON)
+        scan2["supplier"] = "Ocean Supplies Ltd."
+        result = compare_scans(MOCK_CLAUDE_JSON, scan2)
+        assert "supplier" in result["disagreed"]
+
+    def test_agreement_ratio_is_float(self):
+        result = compare_scans(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_AGREE)
+        assert isinstance(result["agreement_ratio"], float)
+
+    def test_different_item_count(self):
+        scan2 = copy.deepcopy(MOCK_CLAUDE_JSON)
+        scan2["items"] = scan2["items"][:1]  # only one item
+        result = compare_scans(MOCK_CLAUDE_JSON, scan2)
+        assert len(result["items_comparison"]["disagreed"]) >= 1
+
+
+class TestMergeResults:
+    """Tests for merge_results."""
+
+    def test_merge_agreeing_scans_no_tiebreaker(self):
+        merged = merge_results(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_AGREE)
+        assert merged["supplier"] == "Fresh Foods Inc."
+        assert merged["total"] == 23.65
+        assert "scan_metadata" not in merged
+
+    def test_merge_with_tiebreaker(self):
+        merged = merge_results(
+            MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE, MOCK_TIEBREAKER_JSON
+        )
+        # Tiebreaker resolves: supplier stays, total from tiebreaker
+        assert merged["total"] == 23.65
+        assert merged["supplier"] == "Fresh Foods Inc."
+
+    def test_merge_without_tiebreaker_uses_scan1(self):
+        merged = merge_results(MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE)
+        # Without tiebreaker, scan1 values used for disagreements
+        assert merged["total"] == 23.65  # scan1's value
+        assert merged["supplier"] == "Fresh Foods Inc."  # agreed
+
+    def test_merge_strips_scan_metadata(self):
+        scan_with_meta = copy.deepcopy(MOCK_CLAUDE_JSON)
+        scan_with_meta["scan_metadata"] = {"mode": "test"}
+        merged = merge_results(scan_with_meta, MOCK_CLAUDE_JSON_AGREE)
+        assert "scan_metadata" not in merged
+
+    def test_merge_with_tiebreaker_uses_tiebreaker_confidence(self):
+        tiebreaker = copy.deepcopy(MOCK_TIEBREAKER_JSON)
+        tiebreaker["confidence"]["supplier"] = 99
+        merged = merge_results(
+            MOCK_CLAUDE_JSON, MOCK_CLAUDE_JSON_DISAGREE, tiebreaker
+        )
+        assert merged["confidence"]["supplier"] == 99
+
+
+# ===========================================================================
+# Phase 09 — scan_invoice Three-Pass Integration Tests (mocked)
+# ===========================================================================
+
+def _mock_prep_return():
+    return {
+        "original": _make_test_image(),
+        "preprocessed": _make_test_image(200, 100).convert("L"),
+        "quality_report": {"resolution": {"issue": False}},
+    }
+
+
+class TestScanInvoiceThreePass:
+    """Tests for the three-pass scan_invoice orchestrator."""
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_full_pipeline_returns_result(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image(200, 100).convert("L"),
-            "quality_report": {"resolution": {"issue": False}},
-        }
+    def test_two_agreeing_scans_no_tiebreaker(self, mock_prep, mock_ocr, mock_claude):
+        """When both scans agree, only 2 API calls are made."""
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = "Invoice text"
+        # Both scans return identical results
         mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
 
         result = scan_invoice(_make_test_image_bytes(), mode="normal")
 
+        assert mock_claude.call_count == 2
         assert result["supplier"] == "Fresh Foods Inc."
         assert result["total"] == 23.65
-        assert len(result["items"]) == 2
-        assert result["scan_metadata"]["mode"] == "normal"
-        assert result["scan_metadata"]["scan_passes"] == 1
-        assert result["scan_metadata"]["api_calls"]["sonnet"] == 1
-        assert result["scan_metadata"]["api_calls"]["opus"] == 0
+        meta = result["scan_metadata"]
+        assert meta["scans_performed"] == 2
+        assert meta["tiebreaker_triggered"] is False
+        assert meta["agreement_ratio"] == 1.0
+        assert meta["api_calls"]["sonnet"] == 2
+        assert meta["api_calls"]["opus"] == 0
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_heavy_mode_uses_opus(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+    def test_disagreeing_scans_trigger_tiebreaker(self, mock_prep, mock_ocr, mock_claude):
+        """When scans disagree, a 3rd tiebreaker call is made."""
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = ""
-        mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
+        # Scan 1, Scan 2 (different), Tiebreaker
+        mock_claude.side_effect = [
+            json.dumps(MOCK_CLAUDE_JSON),
+            json.dumps(MOCK_CLAUDE_JSON_DISAGREE),
+            json.dumps(MOCK_TIEBREAKER_JSON),
+        ]
+
+        result = scan_invoice(_make_test_image_bytes(), mode="normal")
+
+        assert mock_claude.call_count == 3
+        meta = result["scan_metadata"]
+        assert meta["scans_performed"] == 3
+        assert meta["tiebreaker_triggered"] is True
+        assert meta["agreement_ratio"] < 1.0
+
+    @patch("scanner.scanning.engine._call_claude")
+    @patch("scanner.scanning.engine.ocr_prepass")
+    @patch("scanner.scanning.engine.prepare_variants")
+    def test_normal_mode_uses_opus_for_tiebreaker(self, mock_prep, mock_ocr, mock_claude):
+        """Normal mode: Sonnet for scans 1+2, Opus for tiebreaker."""
+        mock_prep.return_value = _mock_prep_return()
+        mock_ocr.return_value = ""
+        mock_claude.side_effect = [
+            json.dumps(MOCK_CLAUDE_JSON),
+            json.dumps(MOCK_CLAUDE_JSON_DISAGREE),
+            json.dumps(MOCK_TIEBREAKER_JSON),
+        ]
+
+        result = scan_invoice(_make_test_image_bytes(), mode="normal")
+
+        # Check models passed to _call_claude
+        calls = mock_claude.call_args_list
+        assert calls[0][0][2] == SONNET  # Scan 1
+        assert calls[1][0][2] == SONNET  # Scan 2
+        assert calls[2][0][2] == OPUS    # Tiebreaker
+
+        meta = result["scan_metadata"]
+        assert meta["api_calls"]["sonnet"] == 2
+        assert meta["api_calls"]["opus"] == 1
+        assert meta["models_used"] == [SONNET, SONNET, OPUS]
+
+    @patch("scanner.scanning.engine._call_claude")
+    @patch("scanner.scanning.engine.ocr_prepass")
+    @patch("scanner.scanning.engine.prepare_variants")
+    def test_heavy_mode_uses_opus_for_all(self, mock_prep, mock_ocr, mock_claude):
+        """Heavy mode: Opus for all scans."""
+        mock_prep.return_value = _mock_prep_return()
+        mock_ocr.return_value = ""
+        mock_claude.side_effect = [
+            json.dumps(MOCK_CLAUDE_JSON),
+            json.dumps(MOCK_CLAUDE_JSON_DISAGREE),
+            json.dumps(MOCK_TIEBREAKER_JSON),
+        ]
 
         result = scan_invoice(_make_test_image_bytes(), mode="heavy")
 
-        mock_claude.assert_called_once()
-        call_args = mock_claude.call_args
-        assert call_args[0][2] == "claude-opus-4-0-20250514"
-        assert result["scan_metadata"]["api_calls"]["opus"] == 1
-        assert result["scan_metadata"]["api_calls"]["sonnet"] == 0
+        calls = mock_claude.call_args_list
+        assert calls[0][0][2] == OPUS
+        assert calls[1][0][2] == OPUS
+        assert calls[2][0][2] == OPUS
+        meta = result["scan_metadata"]
+        assert meta["api_calls"]["opus"] == 3
+        assert meta["api_calls"]["sonnet"] == 0
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_light_mode_uses_sonnet(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+    def test_light_mode_uses_sonnet_for_all(self, mock_prep, mock_ocr, mock_claude):
+        """Light mode: Sonnet for all scans including tiebreaker."""
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = ""
-        mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
+        mock_claude.side_effect = [
+            json.dumps(MOCK_CLAUDE_JSON),
+            json.dumps(MOCK_CLAUDE_JSON_DISAGREE),
+            json.dumps(MOCK_TIEBREAKER_JSON),
+        ]
 
-        scan_invoice(_make_test_image_bytes(), mode="light")
+        result = scan_invoice(_make_test_image_bytes(), mode="light")
 
-        call_args = mock_claude.call_args
-        assert call_args[0][2] == "claude-sonnet-4-20250514"
+        calls = mock_claude.call_args_list
+        assert calls[0][0][2] == SONNET
+        assert calls[1][0][2] == SONNET
+        assert calls[2][0][2] == SONNET
+        meta = result["scan_metadata"]
+        assert meta["api_calls"]["sonnet"] == 3
+        assert meta["api_calls"]["opus"] == 0
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_debug_mode_includes_extra_metadata(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {"test": True},
-        }
-        mock_ocr.return_value = "debug ocr text"
+    def test_scan_metadata_reflects_actual_count(self, mock_prep, mock_ocr, mock_claude):
+        """scan_metadata correctly reports 2 or 3 scans."""
+        mock_prep.return_value = _mock_prep_return()
+        mock_ocr.return_value = ""
+
+        # Agreeing scans → 2
         mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
+        result = scan_invoice(_make_test_image_bytes())
+        assert result["scan_metadata"]["scans_performed"] == 2
+        assert result["scan_metadata"]["scan_passes"] == 2
+
+    @patch("scanner.scanning.engine._call_claude")
+    @patch("scanner.scanning.engine.ocr_prepass")
+    @patch("scanner.scanning.engine.prepare_variants")
+    def test_debug_mode_includes_comparison_details(self, mock_prep, mock_ocr, mock_claude):
+        mock_prep.return_value = _mock_prep_return()
+        mock_ocr.return_value = "debug ocr"
+        mock_claude.side_effect = [
+            json.dumps(MOCK_CLAUDE_JSON),
+            json.dumps(MOCK_CLAUDE_JSON_DISAGREE),
+            json.dumps(MOCK_TIEBREAKER_JSON),
+        ]
 
         result = scan_invoice(_make_test_image_bytes(), mode="normal", debug=True)
 
         debug_info = result["scan_metadata"]["debug"]
         assert "elapsed_seconds" in debug_info
-        assert debug_info["model"] == "claude-sonnet-4-20250514"
-        assert debug_info["ocr_text"] == "debug ocr text"
-        assert debug_info["quality_report"] == {"test": True}
+        assert "comparison_details" in debug_info
+        assert "agreed_fields" in debug_info["comparison_details"]
+        assert "disagreed_fields" in debug_info["comparison_details"]
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
@@ -503,11 +849,7 @@ class TestScanInvoice:
     def test_api_error_returns_error_result(self, mock_prep, mock_ocr, mock_claude):
         import anthropic
 
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = ""
         mock_claude.side_effect = anthropic.APIError(
             message="rate limited",
@@ -526,11 +868,7 @@ class TestScanInvoice:
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
     def test_invalid_json_returns_error_result(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = ""
         mock_claude.return_value = "This is not JSON at all"
 
@@ -543,39 +881,32 @@ class TestScanInvoice:
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_passes_ocr_text_to_prompt(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+    def test_passes_ocr_text_to_prompts(self, mock_prep, mock_ocr, mock_claude):
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = "SUPPLIER: Test Co"
         mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
 
         scan_invoice(_make_test_image_bytes())
 
-        # The prompt (first arg to _call_claude) should contain the OCR text
-        prompt_arg = mock_claude.call_args[0][0]
-        assert "SUPPLIER: Test Co" in prompt_arg
+        # Both prompts should contain the OCR text
+        prompt1 = mock_claude.call_args_list[0][0][0]
+        prompt2 = mock_claude.call_args_list[1][0][0]
+        assert "SUPPLIER: Test Co" in prompt1
+        assert "SUPPLIER: Test Co" in prompt2
 
     @patch("scanner.scanning.engine._call_claude")
     @patch("scanner.scanning.engine.ocr_prepass")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_sends_two_images(self, mock_prep, mock_ocr, mock_claude):
-        mock_prep.return_value = {
-            "original": _make_test_image(),
-            "preprocessed": _make_test_image().convert("L"),
-            "quality_report": {},
-        }
+    def test_sends_two_images_to_each_scan(self, mock_prep, mock_ocr, mock_claude):
+        mock_prep.return_value = _mock_prep_return()
         mock_ocr.return_value = ""
         mock_claude.return_value = json.dumps(MOCK_CLAUDE_JSON)
 
         scan_invoice(_make_test_image_bytes())
 
-        images_arg = mock_claude.call_args[0][1]
-        assert len(images_arg) == 2
-        assert images_arg[0]["media_type"] == "image/png"
-        assert images_arg[1]["media_type"] == "image/png"
+        for call in mock_claude.call_args_list:
+            images_arg = call[0][1]
+            assert len(images_arg) == 2
 
 
 # ===========================================================================
@@ -602,14 +933,14 @@ class TestScanEndpoint(TestCase):
 
     @patch("scanner.views.scan_invoice")
     def test_scan_endpoint_returns_200(self, mock_scan):
-        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 1, "tiebreaker_triggered": False, "math_validation_triggered": False, "api_calls": {"sonnet": 1, "opus": 0}}}
+        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 2, "scans_performed": 2, "tiebreaker_triggered": False, "agreement_ratio": 1.0, "math_validation_triggered": False, "api_calls": {"sonnet": 2, "opus": 0}, "models_used": [SONNET, SONNET]}}
         image = self._create_test_image()
         response = self.client.post("/api/scan/", {"image": image, "mode": "normal"}, format="multipart")
         self.assertEqual(response.status_code, 200)
 
     @patch("scanner.views.scan_invoice")
     def test_scan_endpoint_returns_expected_json_structure(self, mock_scan):
-        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 1, "tiebreaker_triggered": False, "math_validation_triggered": False, "api_calls": {"sonnet": 1, "opus": 0}}}
+        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 2, "scans_performed": 2, "tiebreaker_triggered": False, "agreement_ratio": 1.0, "math_validation_triggered": False, "api_calls": {"sonnet": 2, "opus": 0}, "models_used": [SONNET, SONNET]}}
         image = self._create_test_image()
         response = self.client.post("/api/scan/", {"image": image, "mode": "normal"}, format="multipart")
         data = response.json()
@@ -626,7 +957,7 @@ class TestScanEndpoint(TestCase):
 
     @patch("scanner.views.scan_invoice")
     def test_scan_metadata_contains_mode(self, mock_scan):
-        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "heavy", "scan_passes": 1, "tiebreaker_triggered": False, "math_validation_triggered": False, "api_calls": {"sonnet": 0, "opus": 1}}}
+        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "heavy", "scan_passes": 2, "scans_performed": 2, "tiebreaker_triggered": False, "agreement_ratio": 1.0, "math_validation_triggered": False, "api_calls": {"sonnet": 0, "opus": 2}, "models_used": [OPUS, OPUS]}}
         image = self._create_test_image()
         response = self.client.post("/api/scan/", {"image": image, "mode": "heavy"}, format="multipart")
         data = response.json()
@@ -643,7 +974,7 @@ class TestScanEndpoint(TestCase):
 
     @patch("scanner.views.scan_invoice")
     def test_scan_endpoint_defaults_mode_to_normal(self, mock_scan):
-        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 1, "tiebreaker_triggered": False, "math_validation_triggered": False, "api_calls": {"sonnet": 1, "opus": 0}}}
+        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "normal", "scan_passes": 2, "scans_performed": 2, "tiebreaker_triggered": False, "agreement_ratio": 1.0, "math_validation_triggered": False, "api_calls": {"sonnet": 2, "opus": 0}, "models_used": [SONNET, SONNET]}}
         image = self._create_test_image()
         response = self.client.post("/api/scan/", {"image": image}, format="multipart")
         data = response.json()
@@ -651,7 +982,7 @@ class TestScanEndpoint(TestCase):
 
     @patch("scanner.views.scan_invoice")
     def test_scan_passes_mode_to_engine(self, mock_scan):
-        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "light", "scan_passes": 1, "tiebreaker_triggered": False, "math_validation_triggered": False, "api_calls": {"sonnet": 1, "opus": 0}}}
+        mock_scan.return_value = {**MOCK_CLAUDE_JSON, "scan_metadata": {"mode": "light", "scan_passes": 2, "scans_performed": 2, "tiebreaker_triggered": False, "agreement_ratio": 1.0, "math_validation_triggered": False, "api_calls": {"sonnet": 2, "opus": 0}, "models_used": [SONNET, SONNET]}}
         image = self._create_test_image()
         self.client.post("/api/scan/", {"image": image, "mode": "light"}, format="multipart")
         mock_scan.assert_called_once()
