@@ -26,7 +26,7 @@ db.sqlite3-journal
 
 # Data directory (persistent storage, not code)
 backend/data/general/*.json
-backend/data/suppliers/
+backend/data/suppliers/*.json
 backend/data/stats/*.json
 !backend/data/general/.gitkeep
 !backend/data/suppliers/.gitkeep
