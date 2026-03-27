@@ -26,13 +26,6 @@ from scanner.scanning.comparator import compare_scans, merge_results
 
 logger = logging.getLogger(__name__)
 
-# Model selection per scan mode
-MODEL_MAP = {
-    "light": "claude-sonnet-4-20250514",
-    "normal": "claude-sonnet-4-20250514",
-    "heavy": "claude-opus-4-0-20250514",
-}
-
 SONNET = "claude-sonnet-4-20250514"
 OPUS = "claude-opus-4-0-20250514"
 
@@ -223,7 +216,7 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             api_calls += 1
 
         # Step 6: Merge results
-        result = merge_results(scan1, scan2, tiebreaker_result)
+        result = merge_results(scan1, scan2, tiebreaker_result, comparison=comparison)
 
         # Step 7: Attach scan metadata
         elapsed = time.time() - start_time

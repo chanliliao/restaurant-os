@@ -34,7 +34,6 @@ from scanner.scanning.engine import (
     _encode_image_base64,
     _error_result,
     _get_model_for_scan,
-    MODEL_MAP,
     SONNET,
     OPUS,
 )
@@ -433,16 +432,16 @@ class TestEncodeImageBase64:
 
 
 class TestModelMap:
-    """Tests for model selection per scan mode."""
+    """Tests for model selection per scan mode (via _get_model_for_scan)."""
 
     def test_light_uses_sonnet(self):
-        assert MODEL_MAP["light"] == "claude-sonnet-4-20250514"
+        assert _get_model_for_scan("light", 1) == SONNET
 
     def test_normal_uses_sonnet(self):
-        assert MODEL_MAP["normal"] == "claude-sonnet-4-20250514"
+        assert _get_model_for_scan("normal", 1) == SONNET
 
     def test_heavy_uses_opus(self):
-        assert MODEL_MAP["heavy"] == "claude-opus-4-0-20250514"
+        assert _get_model_for_scan("heavy", 1) == OPUS
 
 
 # ===========================================================================

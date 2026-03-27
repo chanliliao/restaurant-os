@@ -52,16 +52,60 @@ def _numeric_match(a, b) -> bool:
         return True
     if a is None or b is None:
         return False
-    # Compare as floats to handle int/float mismatch (e.g. 5 vs 5.0)
+    # Compare as floats with small epsilon for currency precision
     try:
-        return float(a) == float(b)
+        return abs(float(a) - float(b)) < 0.005
     except (TypeError, ValueError):
         return False
 
 
+def _best_match_items(items1: list, items2: list) -> list:
+    """
+    Match items between two scans by name similarity, falling back to position.
+
+    Returns list of (item1, item2) tuples. Unmatched items paired with None.
+    """
+    if not items1 or not items2:
+        paired = [(items1[i] if i < len(items1) else None,
+                    items2[i] if i < len(items2) else None)
+                   for i in range(max(len(items1), len(items2)))]
+        return paired
+
+    # Try name-based matching first
+    used2 = set()
+    pairs = []
+
+    for item1 in items1:
+        name1 = str(item1.get("name", ""))
+        best_idx = -1
+        best_ratio = 0.0
+
+        for j, item2 in enumerate(items2):
+            if j in used2:
+                continue
+            name2 = str(item2.get("name", ""))
+            ratio = _fuzzy_ratio(name1, name2)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_idx = j
+
+        if best_idx >= 0 and best_ratio >= TEXT_MATCH_THRESHOLD:
+            pairs.append((item1, items2[best_idx]))
+            used2.add(best_idx)
+        else:
+            pairs.append((item1, None))
+
+    # Add unmatched items2
+    for j, item2 in enumerate(items2):
+        if j not in used2:
+            pairs.append((None, item2))
+
+    return pairs
+
+
 def _compare_items(items1: list, items2: list) -> dict:
     """
-    Compare two item arrays, matching by position then by name similarity.
+    Compare two item arrays, matching by name similarity with position fallback.
 
     Returns:
         Dict with "agreed", "disagreed" item lists and per-item match info.
@@ -69,14 +113,10 @@ def _compare_items(items1: list, items2: list) -> dict:
     agreed_items = []
     disagreed_items = []
 
-    max_len = max(len(items1), len(items2))
+    pairs = _best_match_items(items1, items2)
 
-    for i in range(max_len):
-        item1 = items1[i] if i < len(items1) else None
-        item2 = items2[i] if i < len(items2) else None
-
+    for i, (item1, item2) in enumerate(pairs):
         if item1 is None or item2 is None:
-            # One scan has more items than the other
             disagreed_items.append({
                 "index": i,
                 "scan1": item1,
@@ -92,7 +132,6 @@ def _compare_items(items1: list, items2: list) -> dict:
             val1 = str(item1.get(field, ""))
             val2 = str(item2.get(field, ""))
             if _fuzzy_match(val1, val2):
-                # Use the one with higher confidence, or first scan's value
                 item_agreed[field] = val1
             else:
                 item_disagreed[field] = [val1, val2]
@@ -185,7 +224,8 @@ def compare_scans(scan1: dict, scan2: dict) -> dict:
 
 
 def merge_results(
-    scan1: dict, scan2: dict, tiebreaker: dict | None = None
+    scan1: dict, scan2: dict, tiebreaker: dict | None = None,
+    comparison: dict | None = None,
 ) -> dict:
     """
     Merge two scan results, using agreed values and tiebreaker for disputes.
@@ -196,11 +236,13 @@ def merge_results(
         scan1: Parsed JSON result from scan 1.
         scan2: Parsed JSON result from scan 2.
         tiebreaker: Optional parsed JSON from tiebreaker scan.
+        comparison: Pre-computed comparison result. If None, computed internally.
 
     Returns:
         Merged invoice result dict.
     """
-    comparison = compare_scans(scan1, scan2)
+    if comparison is None:
+        comparison = compare_scans(scan1, scan2)
     source = tiebreaker if tiebreaker is not None else scan1
 
     # Start with a copy of scan1 as the base
