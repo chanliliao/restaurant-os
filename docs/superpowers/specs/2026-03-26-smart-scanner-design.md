@@ -466,7 +466,13 @@ No exceptions.
 This section is updated after each phase is completed. It serves as the handoff document between context windows.
 
 ```
-Phase 01:  [ ] Not started — Backend scaffolding (Django REST)
+Phase 01:  [x] Complete — Backend scaffolding (Django REST)
+  - Django 5.x + DRF + CORS configured
+  - Scanner app with preprocessing/, scanning/, memory/, tracking/ subpackages
+  - Placeholder POST /api/scan/ endpoint with validation
+  - Data directory structure with initial JSON files
+  - 6 passing tests for scan endpoint
+  - Security scan: Pillow bumped for CVE-2026-25990, all else clean
 Phase 02:  [ ] Not started — Frontend scaffolding (React + TypeScript)
 Phase 02b: [ ] Not started — Scan controls UI (mode dropdown + debug toggle)
 Phase 03:  [ ] Not started — Orientation & skew correction
