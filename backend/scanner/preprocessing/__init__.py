@@ -9,6 +9,7 @@ from .processor import (
     selective_process,
     prepare_variants,
 )
+from .segmentation import detect_regions, crop_regions, segment_invoice
 
 __all__ = [
     "fix_orientation",
@@ -23,4 +24,7 @@ __all__ = [
     "to_grayscale",
     "selective_process",
     "prepare_variants",
+    "detect_regions",
+    "crop_regions",
+    "segment_invoice",
 ]

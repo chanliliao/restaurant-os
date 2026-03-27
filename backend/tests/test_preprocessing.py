@@ -728,3 +728,276 @@ class TestPrepareVariants:
         img = _make_clean_image()
         result = prepare_variants(img)
         assert result["original"].mode == "RGB"
+
+
+# ===========================================================================
+# Phase 06 — ROI Segmentation Tests
+# ===========================================================================
+
+from scanner.preprocessing.segmentation import (
+    detect_regions,
+    crop_regions,
+    segment_invoice,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for segmentation tests
+# ---------------------------------------------------------------------------
+
+def _make_receipt_with_dividers(width=400, height=600):
+    """
+    Create a receipt-like image with clear horizontal divider lines.
+
+    Layout:
+    - Header area (top ~25%) with a few text lines
+    - Horizontal divider line
+    - Line items area (middle ~50%) with many text lines
+    - Horizontal divider line
+    - Totals area (bottom ~25%) with a few text lines
+    """
+    img = np.full((height, width, 3), 255, dtype=np.uint8)
+
+    # Header text lines (y=30 to y=120)
+    for y in range(30, 120, 15):
+        img[y : y + 2, 40 : width - 40] = 0
+
+    # First divider line at ~25% (y=150)
+    divider1_y = int(height * 0.25)
+    img[divider1_y : divider1_y + 3, 20 : width - 20] = 0
+
+    # Line items text lines
+    items_start = divider1_y + 20
+    items_end = int(height * 0.75) - 20
+    for y in range(items_start, items_end, 15):
+        img[y : y + 2, 40 : width - 40] = 0
+
+    # Second divider line at ~75% (y=450)
+    divider2_y = int(height * 0.75)
+    img[divider2_y : divider2_y + 3, 20 : width - 20] = 0
+
+    # Totals text lines
+    totals_start = divider2_y + 20
+    for y in range(totals_start, height - 30, 15):
+        img[y : y + 2, 40 : width - 40] = 0
+
+    return Image.fromarray(img)
+
+
+def _make_receipt_no_dividers(width=400, height=600):
+    """Create a receipt-like image WITHOUT horizontal divider lines."""
+    img = np.full((height, width, 3), 255, dtype=np.uint8)
+    # Just text lines throughout, no full-width dividers
+    for y in range(30, height - 30, 15):
+        # Short text segments (not full width, so they won't be detected as dividers)
+        segment_len = np.random.randint(40, 120)
+        x_start = np.random.randint(40, 100)
+        img[y : y + 2, x_start : x_start + segment_len] = 0
+    return Image.fromarray(img)
+
+
+# ---------------------------------------------------------------------------
+# Tests: detect_regions
+# ---------------------------------------------------------------------------
+
+class TestDetectRegions:
+
+    def test_detects_regions_with_dividers(self):
+        """Image with clear dividers should detect regions via line method."""
+        img = _make_receipt_with_dividers()
+        result = detect_regions(img)
+        assert result["regions_detected"] is True
+        assert "header" in result["bounding_boxes"]
+        assert "line_items" in result["bounding_boxes"]
+        assert "totals" in result["bounding_boxes"]
+
+    def test_heuristic_fallback_without_dividers(self):
+        """Image without dividers should use heuristic split."""
+        img = _make_receipt_no_dividers()
+        result = detect_regions(img)
+        assert result["regions_detected"] is True
+        assert result["method"] in ("heuristic", "lines")
+        assert "header" in result["bounding_boxes"]
+        assert "line_items" in result["bounding_boxes"]
+        assert "totals" in result["bounding_boxes"]
+
+    def test_very_small_image_returns_no_regions(self):
+        """A tiny image should return no regions (fallback to full)."""
+        img = Image.new("RGB", (30, 30), "white")
+        result = detect_regions(img)
+        assert result["regions_detected"] is False
+        assert result["bounding_boxes"] == {}
+        assert result["method"] == "none"
+
+    def test_accepts_pil_image(self):
+        """detect_regions should accept PIL Image input."""
+        img = _make_receipt_with_dividers()
+        result = detect_regions(img)
+        assert isinstance(result, dict)
+        assert "regions_detected" in result
+
+    def test_accepts_numpy_array(self):
+        """detect_regions should accept numpy array input."""
+        img = _make_receipt_with_dividers()
+        arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        result = detect_regions(arr)
+        assert isinstance(result, dict)
+        assert "regions_detected" in result
+
+    def test_bounding_boxes_have_correct_format(self):
+        """Each bounding box should be a tuple of (x, y, w, h)."""
+        img = _make_receipt_with_dividers()
+        result = detect_regions(img)
+        for name, bbox in result["bounding_boxes"].items():
+            assert len(bbox) == 4, f"Region {name} bbox should have 4 elements"
+            x, y, w, h = bbox
+            assert w > 0, f"Region {name} width should be > 0"
+            assert h > 0, f"Region {name} height should be > 0"
+
+    def test_bounding_boxes_cover_full_height(self):
+        """The three regions should approximately cover the full image height."""
+        img = _make_receipt_with_dividers(400, 600)
+        result = detect_regions(img)
+        if result["regions_detected"]:
+            bboxes = result["bounding_boxes"]
+            total_h = sum(bbox[3] for bbox in bboxes.values())
+            # Allow some tolerance for divider lines
+            assert total_h >= 550, f"Regions should cover most of the 600px height, got {total_h}"
+
+    def test_accepts_grayscale_image(self):
+        """detect_regions should work with a grayscale PIL Image."""
+        img = _make_receipt_with_dividers().convert("L")
+        result = detect_regions(img)
+        assert result["regions_detected"] is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: crop_regions
+# ---------------------------------------------------------------------------
+
+class TestCropRegions:
+
+    def test_crops_match_bounding_boxes(self):
+        """Cropped regions should have dimensions matching their bounding boxes."""
+        img = _make_receipt_with_dividers(400, 600)
+        regions = detect_regions(img)
+        cropped = crop_regions(img, regions)
+
+        for name, crop_img in cropped.items():
+            x, y, w, h = regions["bounding_boxes"][name]
+            assert crop_img.size == (w, h), (
+                f"Region {name}: expected size ({w}, {h}), got {crop_img.size}"
+            )
+
+    def test_returns_pil_images(self):
+        """All cropped regions should be PIL Images."""
+        img = _make_receipt_with_dividers()
+        regions = detect_regions(img)
+        cropped = crop_regions(img, regions)
+
+        for name, crop_img in cropped.items():
+            assert isinstance(crop_img, Image.Image), (
+                f"Region {name} should be a PIL Image"
+            )
+
+    def test_empty_regions_returns_empty_dict(self):
+        """If no bounding boxes provided, return empty dict."""
+        img = _make_receipt_with_dividers()
+        result = crop_regions(img, {"bounding_boxes": {}})
+        assert result == {}
+
+    def test_accepts_numpy_array(self):
+        """crop_regions should accept numpy array input."""
+        img = _make_receipt_with_dividers()
+        arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        regions = detect_regions(arr)
+        cropped = crop_regions(arr, regions)
+        assert len(cropped) > 0
+        for crop_img in cropped.values():
+            assert isinstance(crop_img, Image.Image)
+
+
+# ---------------------------------------------------------------------------
+# Tests: segment_invoice (orchestrator)
+# ---------------------------------------------------------------------------
+
+class TestSegmentInvoice:
+
+    def test_returns_correct_structure(self):
+        """segment_invoice should return dict with all expected keys."""
+        img = _make_receipt_with_dividers()
+        result = segment_invoice(img)
+        assert "header" in result
+        assert "line_items" in result
+        assert "totals" in result
+        assert "full" in result
+        assert "regions_detected" in result
+        assert "bounding_boxes" in result
+
+    def test_full_image_always_present(self):
+        """The 'full' key should always contain a PIL Image."""
+        img = _make_receipt_with_dividers()
+        result = segment_invoice(img)
+        assert isinstance(result["full"], Image.Image)
+        assert result["full"].size == img.size
+
+    def test_regions_are_pil_images_when_detected(self):
+        """When regions are detected, header/line_items/totals should be PIL Images."""
+        img = _make_receipt_with_dividers()
+        result = segment_invoice(img)
+        if result["regions_detected"]:
+            for name in ("header", "line_items", "totals"):
+                assert isinstance(result[name], Image.Image), (
+                    f"Region {name} should be a PIL Image when detected"
+                )
+
+    def test_fallback_for_tiny_image(self):
+        """A tiny image should fallback to full-image mode."""
+        img = Image.new("RGB", (20, 20), "white")
+        result = segment_invoice(img)
+        assert result["regions_detected"] is False
+        assert result["header"] is None
+        assert result["line_items"] is None
+        assert result["totals"] is None
+        assert isinstance(result["full"], Image.Image)
+
+    def test_accepts_numpy_array(self):
+        """segment_invoice should accept numpy array input."""
+        img = _make_receipt_with_dividers()
+        arr = np.array(img)
+        result = segment_invoice(arr)
+        assert isinstance(result["full"], Image.Image)
+        assert "regions_detected" in result
+
+    def test_accepts_pil_image(self):
+        """segment_invoice should accept PIL Image input."""
+        img = _make_receipt_with_dividers()
+        result = segment_invoice(img)
+        assert isinstance(result, dict)
+
+    def test_bounding_boxes_present_when_detected(self):
+        """Bounding boxes should be populated when regions are detected."""
+        img = _make_receipt_with_dividers()
+        result = segment_invoice(img)
+        if result["regions_detected"]:
+            assert len(result["bounding_boxes"]) == 3
+
+    def test_bounding_boxes_empty_when_not_detected(self):
+        """Bounding boxes should be empty when detection fails."""
+        img = Image.new("RGB", (20, 20), "white")
+        result = segment_invoice(img)
+        assert result["bounding_boxes"] == {}
+
+    def test_heuristic_regions_proportional(self):
+        """Heuristic split should produce roughly 25/50/25 proportions."""
+        img = _make_receipt_no_dividers(400, 800)
+        result = segment_invoice(img)
+        if result["regions_detected"]:
+            bboxes = result["bounding_boxes"]
+            header_h = bboxes["header"][3]
+            items_h = bboxes["line_items"][3]
+            totals_h = bboxes["totals"][3]
+            # Header ~25% of 800 = 200, items ~50% = 400, totals ~25% = 200
+            assert 150 <= header_h <= 250, f"Header height {header_h} not ~25%"
+            assert 350 <= items_h <= 450, f"Items height {items_h} not ~50%"
+            assert 150 <= totals_h <= 250, f"Totals height {totals_h} not ~25%"
