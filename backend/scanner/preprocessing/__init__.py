@@ -10,6 +10,7 @@ from .processor import (
     prepare_variants,
 )
 from .segmentation import detect_regions, crop_regions, segment_invoice
+from .layout import build_layout_descriptor, LAYOUT_VERSION
 
 __all__ = [
     "fix_orientation",
@@ -27,4 +28,6 @@ __all__ = [
     "detect_regions",
     "crop_regions",
     "segment_invoice",
+    "build_layout_descriptor",
+    "LAYOUT_VERSION",
 ]
