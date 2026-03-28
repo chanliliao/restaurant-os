@@ -197,3 +197,237 @@ body {
   word-break: break-word;
   color: #333;
 }
+
+.app__result-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ===== Legend ===== */
+.app__legend {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.legend-item {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+/* ===== Field State Highlights ===== */
+.field--low-confidence {
+  background-color: #fef9c3 !important;
+}
+
+.field--inferred {
+  background-color: #dbeafe !important;
+}
+
+.field--changed {
+  background-color: #dcfce7 !important;
+}
+
+/* ===== Confidence & Source Badges ===== */
+.confidence-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  background: #e5e7eb;
+  color: #374151;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.confidence-badge--low {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.source-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  background: #bfdbfe;
+  color: #1e40af;
+  margin-left: 0.3rem;
+  vertical-align: middle;
+}
+
+/* ===== Invoice Form ===== */
+.invoice-form {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.invoice-form__title {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.invoice-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.invoice-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.invoice-form__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.invoice-form__input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  background: #fff;
+  transition: background 0.15s;
+}
+
+.invoice-form__input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+
+/* ===== Items Table ===== */
+.items-table {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.items-table__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.items-table__title {
+  font-size: 1rem;
+}
+
+.items-table__add-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.items-table__add-btn:hover {
+  background: #1d4ed8;
+}
+
+.items-table__wrapper {
+  overflow-x: auto;
+}
+
+.items-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.items-table__table th {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 2px solid #e0e0e0;
+  font-weight: 600;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.items-table__table td {
+  padding: 0.25rem;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+
+.items-table__cell-input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 3px;
+  font-size: 0.85rem;
+  background: transparent;
+}
+
+.items-table__cell-input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+  background: #fff;
+}
+
+.items-table__remove-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.items-table__remove-btn:hover {
+  background: #fef2f2;
+}
+
+/* ===== Confirm Actions ===== */
+.app__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app__confirm-btn {
+  padding: 0.6rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.app__confirm-btn:hover {
+  background: #15803d;
+}
+
+.app__confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ===== Success Status ===== */
+.app__status--success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.app__success {
+  color: #16a34a;
+  font-weight: 600;
+}

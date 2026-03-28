@@ -574,7 +574,15 @@ Phase 12:  [x] Complete — Three-tier inference system
   - Wired into scan_invoice() after math validation step
   - 292 total passing tests (246 existing + 46 new inference tests)
   - Files: scanner/memory/inference.py, scanner/memory/__init__.py (updated exports), scanner/scanning/engine.py (wired in), tests/test_inference.py
-Phase 13:  [ ] Not started — Editable result form UI (React)
+Phase 13:  [x] Complete — Editable result form UI (React)
+  - InvoiceForm component with editable header fields, confidence badges, inference source badges
+  - ItemsTable component with editable cells, add/remove rows, per-cell change tracking
+  - Field highlighting: yellow (low confidence <60), blue (inferred), green (user-edited)
+  - POST /api/confirm/ endpoint with ConfirmRequestSerializer validation
+  - FieldCorrection/ConfirmRequest/ConfirmResponse types in scan.ts, confirmScan() in api.ts
+  - App.tsx wired: scan -> form display -> confirm flow with success message
+  - 298 total passing tests (292 existing + 6 new confirm endpoint tests)
+  - Files: InvoiceForm.tsx, ItemsTable.tsx, scan.ts (updated), api.ts (updated), views.py (updated), urls.py (updated), serializers.py (updated), app.css (updated), App.tsx (updated)
 Phase 14:  [ ] Not started — Memory learning from user corrections
 Phase 15:  [ ] Not started — Supplier layout mapping
 Phase 16:  [ ] Not started — Batch upload, tabs, dashboard, debug mode (React)

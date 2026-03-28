@@ -5,3 +5,15 @@ VALID_MODES = ("light", "normal", "heavy")
 class ScanRequestSerializer(serializers.Serializer):
     image = serializers.ImageField(required=True)
     mode = serializers.ChoiceField(choices=VALID_MODES, default="normal", required=False)
+
+
+class FieldCorrectionSerializer(serializers.Serializer):
+    field = serializers.CharField(max_length=200)
+    original_value = serializers.JSONField()
+    corrected_value = serializers.JSONField()
+
+
+class ConfirmRequestSerializer(serializers.Serializer):
+    scan_result = serializers.DictField(required=True)
+    corrections = FieldCorrectionSerializer(many=True, required=True)
+    confirmed_at = serializers.DateTimeField(required=True)

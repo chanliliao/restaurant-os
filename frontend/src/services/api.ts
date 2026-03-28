@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ScanMode, ScanResponse } from "../types/scan.ts";
+import type { ScanMode, ScanResponse, ConfirmRequest, ConfirmResponse } from "../types/scan.ts";
 
 const client = axios.create({
   baseURL: "/api",
@@ -27,5 +27,15 @@ export async function scanInvoice(
     },
   });
 
+  return response.data;
+}
+
+/**
+ * Confirm a scan result, optionally with user corrections.
+ */
+export async function confirmScan(
+  data: ConfirmRequest
+): Promise<ConfirmResponse> {
+  const response = await client.post<ConfirmResponse>("/confirm/", data);
   return response.data;
 }

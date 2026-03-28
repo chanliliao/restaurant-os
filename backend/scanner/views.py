@@ -1,11 +1,11 @@
 import logging
 
 from rest_framework.decorators import api_view, parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework import status
 
-from scanner.serializers import ScanRequestSerializer
+from scanner.serializers import ScanRequestSerializer, ConfirmRequestSerializer
 from scanner.scanning.engine import scan_invoice
 
 logger = logging.getLogger(__name__)
@@ -36,3 +36,27 @@ def scan_invoice_view(request):
             {"error": "Internal server error during scan."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(["POST"])
+@parser_classes([JSONParser])
+def confirm_scan_view(request):
+    serializer = ConfirmRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    validated = serializer.validated_data
+    corrections_count = len(validated["corrections"])
+    confirmed_at = validated["confirmed_at"].isoformat()
+
+    logger.info(
+        "Scan confirmed with %d correction(s) at %s",
+        corrections_count,
+        confirmed_at,
+    )
+
+    return Response({
+        "status": "confirmed",
+        "corrections_count": corrections_count,
+        "confirmed_at": confirmed_at,
+    })

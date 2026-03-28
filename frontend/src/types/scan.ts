@@ -39,3 +39,24 @@ export interface ScanRequest {
   mode: ScanMode;
   debug: boolean;
 }
+
+/** Tracks a single field correction made by the user */
+export interface FieldCorrection {
+  field: string;
+  original_value: string | number;
+  corrected_value: string | number;
+}
+
+/** Payload sent to POST /api/confirm/ */
+export interface ConfirmRequest {
+  scan_result: ScanResponse;
+  corrections: FieldCorrection[];
+  confirmed_at: string;
+}
+
+/** Response from POST /api/confirm/ */
+export interface ConfirmResponse {
+  status: string;
+  corrections_count: number;
+  confirmed_at: string;
+}

@@ -56,3 +56,72 @@ class TestScanEndpoint(TestCase):
         response = self.client.post("/api/scan/", {"image": image}, format="multipart")
         data = response.json()
         self.assertEqual(data["scan_metadata"]["mode"], "normal")
+
+
+class TestConfirmEndpoint(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.valid_payload = {
+            "scan_result": {
+                "supplier": "Test Supplier",
+                "date": "2026-01-01",
+                "invoice_number": "INV-001",
+                "items": [],
+                "subtotal": 100.0,
+                "tax": 10.0,
+                "total": 110.0,
+                "confidence": {},
+                "inference_sources": {},
+                "scan_metadata": {"mode": "normal"},
+            },
+            "corrections": [
+                {
+                    "field": "supplier",
+                    "original_value": "Test Supplir",
+                    "corrected_value": "Test Supplier",
+                }
+            ],
+            "confirmed_at": "2026-03-27T12:00:00Z",
+        }
+
+    def test_confirm_returns_200(self):
+        response = self.client.post("/api/confirm/", self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_confirm_returns_expected_fields(self):
+        response = self.client.post("/api/confirm/", self.valid_payload, format="json")
+        data = response.json()
+        self.assertEqual(data["status"], "confirmed")
+        self.assertEqual(data["corrections_count"], 1)
+        self.assertIn("confirmed_at", data)
+
+    def test_confirm_with_no_corrections(self):
+        payload = {**self.valid_payload, "corrections": []}
+        response = self.client.post("/api/confirm/", payload, format="json")
+        data = response.json()
+        self.assertEqual(data["status"], "confirmed")
+        self.assertEqual(data["corrections_count"], 0)
+
+    def test_confirm_rejects_missing_scan_result(self):
+        payload = {
+            "corrections": [],
+            "confirmed_at": "2026-03-27T12:00:00Z",
+        }
+        response = self.client.post("/api/confirm/", payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_confirm_rejects_missing_confirmed_at(self):
+        payload = {
+            "scan_result": self.valid_payload["scan_result"],
+            "corrections": [],
+        }
+        response = self.client.post("/api/confirm/", payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_confirm_rejects_invalid_correction_shape(self):
+        payload = {
+            **self.valid_payload,
+            "corrections": [{"bad_field": "oops"}],
+        }
+        response = self.client.post("/api/confirm/", payload, format="json")
+        self.assertEqual(response.status_code, 400)
