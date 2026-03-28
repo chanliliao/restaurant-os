@@ -9,8 +9,8 @@ class ScanRequestSerializer(serializers.Serializer):
 
 class FieldCorrectionSerializer(serializers.Serializer):
     field = serializers.CharField(max_length=200)
-    original_value = serializers.JSONField()
-    corrected_value = serializers.JSONField()
+    original_value = serializers.JSONField(allow_null=True)
+    corrected_value = serializers.JSONField(allow_null=True)
 
 
 class ConfirmRequestSerializer(serializers.Serializer):
