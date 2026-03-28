@@ -81,7 +81,8 @@ export interface StatsResponse {
     by_supplier: Record<string, { count: number; average_accuracy: number; total_corrections: number }>;
   };
   api_usage: {
-    total_calls: Record<string, number>;
-    by_mode: Record<string, Record<string, number>>;
+    total_scans: number;
+    totals: Record<string, number>;
+    by_mode: Record<string, { count: number; totals: Record<string, number> }>;
   };
 }

@@ -15,13 +15,14 @@ const client = axios.create({
 export async function scanInvoice(
   file: File,
   mode: ScanMode = "normal",
-  _debug: boolean = false
+  debug: boolean = false
 ): Promise<ScanResponse> {
   const formData = new FormData();
   formData.append("image", file);
   formData.append("mode", mode);
 
-  const response = await client.post<ScanResponse>("/scan/", formData, {
+  const params = debug ? "?debug=1" : "";
+  const response = await client.post<ScanResponse>(`/scan/${params}`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },

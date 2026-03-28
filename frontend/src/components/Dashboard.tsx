@@ -81,7 +81,6 @@ export default function Dashboard({ visible }: DashboardProps) {
                 <th>Mode</th>
                 <th>Scans</th>
                 <th>Avg Accuracy</th>
-                <th>Corrections</th>
               </tr>
             </thead>
             <tbody>
@@ -90,7 +89,6 @@ export default function Dashboard({ visible }: DashboardProps) {
                   <td>{mode}</td>
                   <td>{data.count}</td>
                   <td>{(data.average_accuracy * 100).toFixed(1)}%</td>
-                  <td>{data.total_corrections}</td>
                 </tr>
               ))}
             </tbody>
@@ -98,11 +96,11 @@ export default function Dashboard({ visible }: DashboardProps) {
         </div>
       )}
 
-      {Object.keys(api_usage.total_calls).length > 0 && (
+      {api_usage.totals && Object.keys(api_usage.totals).length > 0 && (
         <div className="dashboard__section">
           <h3 className="dashboard__section-title">API Usage</h3>
           <div className="dashboard__cards">
-            {Object.entries(api_usage.total_calls).map(([model, count]) => (
+            {Object.entries(api_usage.totals).map(([model, count]) => (
               <div key={model} className="dashboard__card">
                 <span className="dashboard__card-label">{model}</span>
                 <span className="dashboard__card-value">{count} calls</span>
