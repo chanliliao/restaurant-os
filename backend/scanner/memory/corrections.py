@@ -20,15 +20,23 @@ def _parse_item_field(field: str) -> tuple[int, str | None] | None:
     return int(m.group(1)), m.group(2)
 
 
+VALID_HEADER_FIELDS = frozenset({
+    "supplier", "date", "invoice_number", "subtotal", "tax", "total", "tax_rate",
+})
+
+
 def apply_corrections(scan_result: dict, corrections: list[dict]) -> dict:
     """Apply a list of corrections to a scan result, returning a new dict.
 
     Corrections are dicts with ``field``, ``original_value``, ``corrected_value``.
 
     Field paths:
-    - Top-level: ``"supplier"``, ``"total"``, etc. -- set directly.
+    - Top-level: ``"supplier"``, ``"total"``, etc. -- set directly (whitelisted).
     - Item field: ``"items[0].unit_price"`` -- update item at index.
     - Row deletion: ``"items[1]"`` with ``corrected_value == "deleted_row"`` -- remove item.
+
+    Unrecognized top-level field names are silently ignored to prevent
+    injection of arbitrary keys into the scan data.
 
     Does NOT mutate the input ``scan_result``.
     """
@@ -65,8 +73,9 @@ def apply_corrections(scan_result: dict, corrections: list[dict]) -> dict:
             if 0 <= idx < len(items) and subfield:
                 items[idx][subfield] = corrected
         else:
-            # Top-level header field
-            result[field] = corrected
+            # Top-level header field (whitelist only)
+            if field in VALID_HEADER_FIELDS:
+                result[field] = corrected
 
     # Apply deletions highest-index-first so indices stay valid
     for idx in sorted(deletions, reverse=True):

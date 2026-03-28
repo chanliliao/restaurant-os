@@ -10,7 +10,13 @@ from __future__ import annotations
 
 
 def _is_empty(value) -> bool:
-    """Return True if value is considered empty/absent."""
+    """Return True if value is considered empty/absent.
+
+    Zero is treated as empty because invoice fields default to 0 when the
+    scanner cannot extract a value. A genuine zero (e.g. tax-exempt tax=0)
+    is rare and would be classified as "missing" → user correction records
+    it correctly either way.
+    """
     if value is None:
         return True
     if isinstance(value, str) and value.strip() == "":
@@ -23,12 +29,14 @@ def _is_empty(value) -> bool:
 
 
 def _is_deletion(value) -> bool:
-    """Return True if the corrected value signals a deletion."""
+    """Return True if the corrected value signals a deletion.
+
+    Unlike _is_empty, zero is NOT treated as deletion — correcting a value
+    to 0 (e.g. a complimentary item) is a "misread", not "hallucinated".
+    """
     if value is None:
         return True
     if isinstance(value, str) and (value.strip() == "" or value.strip() == "deleted_row"):
-        return True
-    if isinstance(value, (int, float)) and value == 0:
         return True
     return False
 

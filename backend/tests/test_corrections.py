@@ -136,10 +136,10 @@ class TestApplyCorrectionsEdgeCases:
         result = apply_corrections(scan, corrections)
         assert len(result["items"]) == 1
 
-    def test_unknown_header_field_added(self):
+    def test_unknown_header_field_ignored(self):
         scan = {"supplier": "Sysco", "items": []}
         corrections = [
             {"field": "notes", "original_value": None, "corrected_value": "Rush order"},
         ]
         result = apply_corrections(scan, corrections)
-        assert result["notes"] == "Rush order"
+        assert "notes" not in result

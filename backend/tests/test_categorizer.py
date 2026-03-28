@@ -35,8 +35,16 @@ class TestCategorizeError:
     def test_missing_original_empty_list(self):
         assert categorize_error("items", [], [{"name": "Real Item"}]) == "missing"
 
-    def test_misread_both_zero_is_misread(self):
-        assert categorize_error("qty", 0, 0) == "misread"
+    def test_both_zero_is_missing(self):
+        # 0 -> 0: original is empty (zero=absent), corrected 0 is not a deletion
+        assert categorize_error("qty", 0, 0) == "missing"
+
+    def test_corrected_to_zero_is_misread_not_hallucinated(self):
+        # Correcting $5 to $0 (complimentary item) should be "misread" not "hallucinated"
+        assert categorize_error("unit_price", 5.00, 0) == "misread"
+
+    def test_corrected_to_zero_int_is_misread(self):
+        assert categorize_error("quantity", 3, 0) == "misread"
 
 
 class TestCategorizeCorrections:
