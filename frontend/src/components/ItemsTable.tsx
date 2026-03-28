@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { LineItem, FieldCorrection } from "../types/scan.ts";
 
 type ItemField = "name" | "quantity" | "unit" | "unit_price" | "total";
@@ -24,9 +24,10 @@ export default function ItemsTable({ items: initialItems, onCorrectionsChange }:
   const [items, setItems] = useState<LineItem[]>(() => [...initialItems]);
   const [originalItems] = useState<LineItem[]>(() => [...initialItems]);
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
+  const deletedRowsRef = useRef<Set<number>>(new Set());
 
   const buildCorrections = useCallback(
-    (currentItems: LineItem[], currentChanged: Set<string>) => {
+    (currentItems: LineItem[], currentChanged: Set<string>, deletedRows: Set<number>) => {
       const corrections: FieldCorrection[] = [];
       for (const cellKey of currentChanged) {
         const [rowStr, field] = cellKey.split(":");
@@ -43,12 +44,20 @@ export default function ItemsTable({ items: initialItems, onCorrectionsChange }:
           }
         }
       }
+      // Track deleted original rows
+      for (const deletedIndex of deletedRows) {
+        corrections.push({
+          field: `items[${deletedIndex}]`,
+          original_value: originalItems[deletedIndex]?.name ?? "",
+          corrected_value: "deleted_row",
+        });
+      }
       // Track added rows
       for (let i = originalItems.length; i < currentItems.length; i++) {
         corrections.push({
           field: `items[${i}]`,
           original_value: "",
-          corrected_value: `added_row`,
+          corrected_value: "added_row",
         });
       }
       return corrections;
@@ -68,7 +77,6 @@ export default function ItemsTable({ items: initialItems, onCorrectionsChange }:
         }
         next[rowIndex] = item;
 
-        // Determine changed state
         const cellKey = `${rowIndex}:${field}`;
         setChangedCells((prevChanged) => {
           const nextChanged = new Set(prevChanged);
@@ -80,7 +88,7 @@ export default function ItemsTable({ items: initialItems, onCorrectionsChange }:
               nextChanged.delete(cellKey);
             }
           }
-          onCorrectionsChange(buildCorrections(next, nextChanged));
+          onCorrectionsChange(buildCorrections(next, nextChanged, deletedRowsRef.current));
           return nextChanged;
         });
 
@@ -93,32 +101,41 @@ export default function ItemsTable({ items: initialItems, onCorrectionsChange }:
   const addRow = useCallback(() => {
     setItems((prev) => {
       const next = [...prev, makeEmptyItem()];
-      onCorrectionsChange(buildCorrections(next, changedCells));
+      setChangedCells((prevChanged) => {
+        onCorrectionsChange(buildCorrections(next, prevChanged, deletedRowsRef.current));
+        return prevChanged;
+      });
       return next;
     });
-  }, [onCorrectionsChange, buildCorrections, changedCells]);
+  }, [onCorrectionsChange, buildCorrections]);
 
   const removeRow = useCallback(
     (index: number) => {
       setItems((prev) => {
         const next = prev.filter((_, i) => i !== index);
-        // Clean up changed cells for removed row and re-index
-        const nextChanged = new Set<string>();
-        for (const key of changedCells) {
-          const [rowStr, field] = key.split(":");
-          const row = Number(rowStr);
-          if (row < index) {
-            nextChanged.add(key);
-          } else if (row > index) {
-            nextChanged.add(`${row - 1}:${field}`);
-          }
+        // Track deletion of original rows
+        if (index < originalItems.length) {
+          deletedRowsRef.current = new Set([...deletedRowsRef.current, index]);
         }
-        setChangedCells(nextChanged);
-        onCorrectionsChange(buildCorrections(next, nextChanged));
+        // Re-index changed cells
+        setChangedCells((prevChanged) => {
+          const nextChanged = new Set<string>();
+          for (const key of prevChanged) {
+            const [rowStr, field] = key.split(":");
+            const row = Number(rowStr);
+            if (row < index) {
+              nextChanged.add(key);
+            } else if (row > index) {
+              nextChanged.add(`${row - 1}:${field}`);
+            }
+          }
+          onCorrectionsChange(buildCorrections(next, nextChanged, deletedRowsRef.current));
+          return nextChanged;
+        });
         return next;
       });
     },
-    [changedCells, onCorrectionsChange, buildCorrections]
+    [originalItems, onCorrectionsChange, buildCorrections]
   );
 
   const getCellClass = (rowIndex: number, field: ItemField): string => {

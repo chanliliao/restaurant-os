@@ -30,7 +30,26 @@ export default function InvoiceForm({ scanResult, onCorrectionsChange }: Props) 
 
   const handleChange = useCallback(
     (field: HeaderField, newValue: string) => {
-      setValues((prev) => ({ ...prev, [field]: newValue }));
+      setValues((prev) => {
+        const updatedValues = { ...prev, [field]: newValue };
+
+        // Build corrections from the updated values (avoids stale closure)
+        const corrections: FieldCorrection[] = [];
+        for (const f of HEADER_FIELDS) {
+          const orig = String(scanResult[f.key]);
+          const curr = updatedValues[f.key];
+          if (curr !== orig) {
+            corrections.push({
+              field: f.key,
+              original_value: f.type === "number" ? Number(orig) : orig,
+              corrected_value: f.type === "number" ? Number(curr) : curr,
+            });
+          }
+        }
+        onCorrectionsChange(corrections);
+
+        return updatedValues;
+      });
 
       const originalValue = String(scanResult[field]);
       const isChanged = newValue !== originalValue;
@@ -44,24 +63,8 @@ export default function InvoiceForm({ scanResult, onCorrectionsChange }: Props) 
         }
         return next;
       });
-
-      // Build corrections list
-      const updatedValues = { ...values, [field]: newValue };
-      const corrections: FieldCorrection[] = [];
-      for (const f of HEADER_FIELDS) {
-        const orig = String(scanResult[f.key]);
-        const curr = f.key === field ? newValue : updatedValues[f.key];
-        if (curr !== orig) {
-          corrections.push({
-            field: f.key,
-            original_value: f.type === "number" ? Number(orig) : orig,
-            corrected_value: f.type === "number" ? Number(curr) : curr,
-          });
-        }
-      }
-      onCorrectionsChange(corrections);
     },
-    [scanResult, values, onCorrectionsChange]
+    [scanResult, onCorrectionsChange]
   );
 
   const getFieldClass = (field: HeaderField): string => {
