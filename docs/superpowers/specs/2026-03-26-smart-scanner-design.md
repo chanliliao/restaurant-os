@@ -591,7 +591,13 @@ Phase 14:  [x] Complete — Memory learning from user corrections
   - Graceful handling of empty/unknown supplier names (skips supplier memory, still updates general)
   - 332 total passing tests (330 + 2 new zero-as-deletion edge case tests)
   - Files: categorizer.py (new), corrections.py (new), memory/__init__.py (updated), views.py (updated), serializers.py (updated), test_categorizer.py (new), test_corrections.py (new), test_api.py (updated)
-Phase 15:  [ ] Not started — Supplier layout mapping
+Phase 15:  [x] Complete — Supplier layout mapping
+  - Layout descriptor builder: converts bounding boxes to normalized 0-1 coordinates
+  - Layout-aware segmentation: uses saved layout when aspect ratio compatible, falls back to detection
+  - OCR-based early supplier identification: matches known suppliers from OCR text to load layout before Claude scans
+  - Layout saved to {supplier_id}/layout.json after first successful scan
+  - 353 total passing tests (332 + 21 new layout/segmentation tests)
+  - Files: layout.py (new), segmentation.py (updated), engine.py (updated), json_store.py (updated), preprocessing/__init__.py (updated), test_layout.py (new), test_segmentation_layout.py (new), test_engine_layout.py (new)
 Phase 16:  [ ] Not started — Batch upload, tabs, dashboard, debug mode (React)
 Phase 17:  [ ] Not started — Integration testing + golden test set
 ```
