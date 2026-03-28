@@ -1,155 +1,158 @@
 import { useState, useCallback, useRef } from "react";
 import DropZone from "./components/DropZone.tsx";
 import ScanControls from "./components/ScanControls.tsx";
-import InvoiceForm from "./components/InvoiceForm.tsx";
-import ItemsTable from "./components/ItemsTable.tsx";
+import ResultTabs from "./components/ResultTabs.tsx";
+import Dashboard from "./components/Dashboard.tsx";
 import { scanInvoice, confirmScan } from "./services/api.ts";
-import type { ScanMode, ScanResponse, FieldCorrection } from "./types/scan.ts";
+import type { ScanMode, ScanTab, FieldCorrection } from "./types/scan.ts";
 import "./styles/app.css";
+
+let nextTabId = 0;
 
 export default function App() {
   const [mode, setMode] = useState<ScanMode>("normal");
   const [debug, setDebug] = useState(false);
-  const [result, setResult] = useState<ScanResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const [tabs, setTabs] = useState<ScanTab[]>([]);
+  const [activeTab, setActiveTab] = useState(0);
+  const [scanning, setScanning] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
-  const headerCorrections = useRef<FieldCorrection[]>([]);
-  const itemCorrections = useRef<FieldCorrection[]>([]);
+  // Per-tab corrections stored by tab id
+  const headerCorrections = useRef<Record<string, FieldCorrection[]>>({});
+  const itemCorrections = useRef<Record<string, FieldCorrection[]>>({});
 
-  const handleFileSelected = useCallback(
-    async (file: File) => {
-      setLoading(true);
-      setError(null);
-      setResult(null);
-      setConfirmed(false);
-      setFileName(file.name);
-      headerCorrections.current = [];
-      itemCorrections.current = [];
+  const processFiles = useCallback(
+    async (files: File[]) => {
+      // Create tab entries for all files
+      const newTabs: ScanTab[] = files.map((f) => ({
+        id: `tab-${++nextTabId}`,
+        filename: f.name,
+        status: "scanning" as const,
+        confirmed: false,
+      }));
 
-      try {
-        const response = await scanInvoice(file, mode, debug);
-        setResult(response);
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError("An unexpected error occurred while scanning.");
+      setTabs((prev) => {
+        const updated = [...prev, ...newTabs];
+        // Activate the first new tab
+        setActiveTab(updated.length - newTabs.length);
+        return updated;
+      });
+      setScanning(true);
+
+      // Process sequentially
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const tabId = newTabs[i].id;
+
+        try {
+          const result = await scanInvoice(file, mode, debug);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabId ? { ...t, status: "done" as const, result } : t
+            )
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Scan failed";
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id === tabId ? { ...t, status: "error" as const, error: msg } : t
+            )
+          );
         }
-      } finally {
-        setLoading(false);
       }
+
+      setScanning(false);
     },
     [mode, debug]
   );
 
-  const handleHeaderCorrections = useCallback((corrections: FieldCorrection[]) => {
-    headerCorrections.current = corrections;
-  }, []);
+  const handleHeaderCorrections = useCallback(
+    (tabId: string, corrections: FieldCorrection[]) => {
+      headerCorrections.current[tabId] = corrections;
+    },
+    []
+  );
 
-  const handleItemCorrections = useCallback((corrections: FieldCorrection[]) => {
-    itemCorrections.current = corrections;
-  }, []);
+  const handleItemCorrections = useCallback(
+    (tabId: string, corrections: FieldCorrection[]) => {
+      itemCorrections.current[tabId] = corrections;
+    },
+    []
+  );
 
-  const handleConfirm = useCallback(async () => {
-    if (!result) return;
+  const handleConfirm = useCallback(
+    async (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (!tab?.result) return;
 
-    setConfirming(true);
-    setError(null);
-
-    try {
-      const allCorrections = [...headerCorrections.current, ...itemCorrections.current];
-      await confirmScan({
-        scan_result: result,
-        corrections: allCorrections,
-        confirmed_at: new Date().toISOString(),
-      });
-      setConfirmed(true);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("An unexpected error occurred while confirming.");
+      setConfirmingId(tabId);
+      try {
+        const allCorrections = [
+          ...(headerCorrections.current[tabId] ?? []),
+          ...(itemCorrections.current[tabId] ?? []),
+        ];
+        await confirmScan({
+          scan_result: tab.result,
+          corrections: allCorrections,
+          confirmed_at: new Date().toISOString(),
+        });
+        setTabs((prev) =>
+          prev.map((t) => (t.id === tabId ? { ...t, confirmed: true } : t))
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Confirm failed";
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tabId ? { ...t, error: msg } : t
+          )
+        );
+      } finally {
+        setConfirmingId(null);
       }
-    } finally {
-      setConfirming(false);
-    }
-  }, [result]);
+    },
+    [tabs]
+  );
 
   return (
     <div className="app">
       <header className="app__header">
         <h1 className="app__title">SmartScanner</h1>
         <p className="app__subtitle">AI-powered restaurant invoice scanner</p>
+        <button
+          type="button"
+          className="app__dashboard-toggle"
+          onClick={() => setShowDashboard((v) => !v)}
+        >
+          {showDashboard ? "Close Dashboard" : "Dashboard"}
+        </button>
       </header>
 
       <main className="app__main">
-        <ScanControls
-          mode={mode}
-          onModeChange={setMode}
-          debug={debug}
-          onDebugChange={setDebug}
-          disabled={loading}
-        />
+        <Dashboard visible={showDashboard} />
 
-        <DropZone onFileSelected={handleFileSelected} disabled={loading} />
+        {!showDashboard && (
+          <>
+            <ScanControls
+              mode={mode}
+              onModeChange={setMode}
+              debug={debug}
+              onDebugChange={setDebug}
+              disabled={scanning}
+            />
 
-        {loading && (
-          <div className="app__status">
-            <p className="app__loading">Scanning {fileName}...</p>
-          </div>
-        )}
+            <DropZone onFilesSelected={processFiles} disabled={scanning} />
 
-        {error && (
-          <div className="app__status">
-            <p className="app__error">Error: {error}</p>
-          </div>
-        )}
-
-        {result && !confirmed && (
-          <div className="app__result">
-            <h2 className="app__result-title">
-              Scan Result {fileName ? `(${fileName})` : ""}
-            </h2>
-
-            <div className="app__result-body">
-              <div className="app__legend">
-                <span className="legend-item field--low-confidence">Low confidence</span>
-                <span className="legend-item field--inferred">Inferred</span>
-                <span className="legend-item field--changed">Edited</span>
-              </div>
-
-              <InvoiceForm
-                scanResult={result}
-                onCorrectionsChange={handleHeaderCorrections}
-              />
-
-              <ItemsTable
-                items={result.items}
-                onCorrectionsChange={handleItemCorrections}
-              />
-
-              <div className="app__actions">
-                <button
-                  type="button"
-                  className="app__confirm-btn"
-                  onClick={handleConfirm}
-                  disabled={confirming}
-                >
-                  {confirming ? "Confirming..." : "Confirm All"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {confirmed && (
-          <div className="app__status app__status--success">
-            <p className="app__success">Invoice confirmed successfully.</p>
-          </div>
+            <ResultTabs
+              tabs={tabs}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              onHeaderCorrectionsChange={handleHeaderCorrections}
+              onItemCorrectionsChange={handleItemCorrections}
+              onConfirm={handleConfirm}
+              confirmingId={confirmingId}
+            />
+          </>
         )}
       </main>
     </div>
