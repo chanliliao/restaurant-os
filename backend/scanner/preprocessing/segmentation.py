@@ -211,20 +211,83 @@ def crop_regions(image, regions: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Saved-layout application
+# ---------------------------------------------------------------------------
+
+# Maximum relative difference in aspect ratio before falling back to detection.
+_ASPECT_RATIO_THRESHOLD = 0.30
+
+
+def _apply_saved_layout(
+    saved_layout: dict | None,
+    image_size: tuple[int, int],
+) -> dict | None:
+    """Convert a normalized saved layout back to absolute bounding boxes.
+
+    Returns a dict mapping region name to (x, y, w, h) in pixels, or None
+    if the saved layout is absent or incompatible with the current image.
+
+    Compatibility check: if the image's aspect ratio differs from the saved
+    layout's by more than 30%, the layout is considered incompatible and
+    None is returned so the caller can fall back to detection.
+    """
+    if saved_layout is None:
+        return None
+
+    img_w, img_h = image_size
+    if img_h == 0:
+        return None
+
+    current_ratio = img_w / img_h
+    saved_ratio = saved_layout.get("image_size_ratio", 0)
+    if saved_ratio <= 0:
+        return None
+
+    # Check aspect-ratio compatibility
+    ratio_diff = abs(current_ratio - saved_ratio) / saved_ratio
+    if ratio_diff > _ASPECT_RATIO_THRESHOLD:
+        return None
+
+    _LAYOUT_TO_SEG = {
+        "header_region": "header",
+        "items_region": "line_items",
+        "totals_region": "totals",
+    }
+
+    bboxes: dict[str, tuple[int, int, int, int]] = {}
+    for layout_key, seg_name in _LAYOUT_TO_SEG.items():
+        region = saved_layout.get(layout_key)
+        if region is None:
+            continue
+        x = int(region["x"] * img_w)
+        y = int(region["y"] * img_h)
+        w = int(region["w"] * img_w)
+        h = int(region["h"] * img_h)
+        bboxes[seg_name] = (x, y, w, h)
+
+    if not bboxes:
+        return None
+
+    return bboxes
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
-def segment_invoice(image) -> dict:
+def segment_invoice(image, *, saved_layout: dict | None = None) -> dict:
     """
     Full ROI segmentation orchestrator.
 
-    1. Run detect_regions to find header / line_items / totals bounding boxes.
-    2. Crop the image into detected regions.
-    3. Always include the full image as a fallback.
-    4. If detection fails entirely, return only the full image.
+    1. If a saved_layout is provided and aspect-ratio-compatible, use it.
+    2. Otherwise, run detect_regions for morphological / heuristic detection.
+    3. Crop the image into detected regions.
+    4. Always include the full image as a fallback.
 
     Args:
         image: PIL Image or numpy ndarray.
+        saved_layout: Optional normalized layout descriptor from supplier
+            memory.  When provided and compatible, skips detection.
 
     Returns:
         Dict with keys:
@@ -236,7 +299,19 @@ def segment_invoice(image) -> dict:
             - "bounding_boxes": dict of region name -> (x, y, w, h)
     """
     pil_img = _to_pil(image)
-    regions = detect_regions(image)
+    width, height = pil_img.size
+
+    # Try saved layout first
+    layout_bboxes = _apply_saved_layout(saved_layout, (width, height))
+
+    if layout_bboxes is not None:
+        regions = {
+            "bounding_boxes": layout_bboxes,
+            "regions_detected": True,
+            "method": "saved_layout",
+        }
+    else:
+        regions = detect_regions(image)
 
     result = {
         "header": None,
