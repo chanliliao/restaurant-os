@@ -583,7 +583,14 @@ Phase 13:  [x] Complete — Editable result form UI (React)
   - App.tsx wired: scan -> form display -> confirm flow with success message
   - 298 total passing tests (292 existing + 6 new confirm endpoint tests)
   - Files: InvoiceForm.tsx, ItemsTable.tsx, scan.ts (updated), api.ts (updated), views.py (updated), urls.py (updated), serializers.py (updated), app.css (updated), App.tsx (updated)
-Phase 14:  [ ] Not started — Memory learning from user corrections
+Phase 14:  [x] Complete — Memory learning from user corrections
+  - Error categorizer: classifies corrections as misread/missing/hallucinated (pure functions)
+  - Correction applicator: applies user corrections to scan data (header fields, item subfields, row deletions)
+  - Confirm endpoint wired to memory: saves corrected data + error categories to supplier + general memory
+  - Field name whitelist prevents arbitrary key injection into scan data
+  - Graceful handling of empty/unknown supplier names (skips supplier memory, still updates general)
+  - 332 total passing tests (330 + 2 new zero-as-deletion edge case tests)
+  - Files: categorizer.py (new), corrections.py (new), memory/__init__.py (updated), views.py (updated), serializers.py (updated), test_categorizer.py (new), test_corrections.py (new), test_api.py (updated)
 Phase 15:  [ ] Not started — Supplier layout mapping
 Phase 16:  [ ] Not started — Batch upload, tabs, dashboard, debug mode (React)
 Phase 17:  [ ] Not started — Integration testing + golden test set
