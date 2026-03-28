@@ -11,32 +11,40 @@ const ACCEPTED_TYPES = [
 ];
 
 interface DropZoneProps {
-  onFileSelected: (file: File) => void;
+  onFilesSelected: (files: File[]) => void;
   disabled?: boolean;
 }
 
-export default function DropZone({ onFileSelected, disabled = false }: DropZoneProps) {
+export default function DropZone({ onFilesSelected, disabled = false }: DropZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [queuedCount, setQueuedCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateAndSelect = useCallback(
-    (file: File) => {
+    (fileList: FileList) => {
       setError(null);
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        setError(
-          `Invalid file type: ${file.type || "unknown"}. Please upload an image (JPEG, PNG, WebP, TIFF, or BMP).`
-        );
-        return;
+      const valid: File[] = [];
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        if (!ACCEPTED_TYPES.includes(file.type)) {
+          setError(
+            `Skipped "${file.name}": invalid type. Accepts JPEG, PNG, WebP, TIFF, BMP.`
+          );
+          continue;
+        }
+        if (file.size > 20 * 1024 * 1024) {
+          setError(`Skipped "${file.name}": exceeds 20 MB limit.`);
+          continue;
+        }
+        valid.push(file);
       }
-      // 20 MB limit (defense in depth; backend validates too)
-      if (file.size > 20 * 1024 * 1024) {
-        setError("File too large. Maximum size is 20 MB.");
-        return;
+      if (valid.length > 0) {
+        setQueuedCount(valid.length);
+        onFilesSelected(valid);
       }
-      onFileSelected(file);
     },
-    [onFileSelected]
+    [onFilesSelected]
   );
 
   const handleDragOver = useCallback(
@@ -65,7 +73,7 @@ export default function DropZone({ onFileSelected, disabled = false }: DropZoneP
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-        validateAndSelect(files[0]);
+        validateAndSelect(files);
       }
     },
     [disabled, validateAndSelect]
@@ -81,9 +89,8 @@ export default function DropZone({ onFileSelected, disabled = false }: DropZoneP
     (e: ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (files && files.length > 0) {
-        validateAndSelect(files[0]);
+        validateAndSelect(files);
       }
-      // Reset input so the same file can be selected again
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -109,12 +116,13 @@ export default function DropZone({ onFileSelected, disabled = false }: DropZoneP
         onClick={handleClick}
         role="button"
         tabIndex={0}
-        aria-label="Upload invoice image"
+        aria-label="Upload invoice images"
       >
         <input
           ref={fileInputRef}
           type="file"
           accept={ACCEPTED_TYPES.join(",")}
+          multiple
           onChange={handleFileInput}
           style={{ display: "none" }}
           aria-hidden="true"
@@ -124,11 +132,14 @@ export default function DropZone({ onFileSelected, disabled = false }: DropZoneP
           <p className="dropzone__text">
             {disabled
               ? "Scanning..."
-              : "Drag and drop an invoice image here, or click to browse"}
+              : "Drag and drop invoice images here, or click to browse"}
           </p>
           <p className="dropzone__hint">
-            Supports JPEG, PNG, WebP, TIFF, BMP (max 20 MB)
+            Supports JPEG, PNG, WebP, TIFF, BMP (max 20 MB) — multiple files allowed
           </p>
+          {queuedCount > 1 && !disabled && (
+            <p className="dropzone__queued">{queuedCount} files queued</p>
+          )}
         </div>
       </div>
       {error && <p className="dropzone__error">{error}</p>}
