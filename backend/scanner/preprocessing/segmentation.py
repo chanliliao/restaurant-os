@@ -320,6 +320,7 @@ def segment_invoice(image, *, saved_layout: dict | None = None) -> dict:
         "full": pil_img,
         "regions_detected": regions["regions_detected"],
         "bounding_boxes": regions["bounding_boxes"],
+        "method": regions.get("method", "none"),
     }
 
     if not regions["regions_detected"]:

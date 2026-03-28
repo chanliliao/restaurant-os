@@ -203,6 +203,16 @@ class JsonSupplierMemory(SupplierMemory):
         index["suppliers"] = suppliers
         _write_json(self._index_path(), index)
 
+    def list_suppliers(self) -> dict[str, str]:
+        """Return a mapping of supplier_id -> display name from the index."""
+        with _file_lock:
+            index = _read_json(self._index_path())
+        suppliers = index.get("suppliers", {})
+        return {
+            sid: entry.get("name", sid)
+            for sid, entry in suppliers.items()
+        }
+
     def infer_missing(self, supplier_id: str, field: str) -> Any:
         """Look up field from supplier's historical data.
 

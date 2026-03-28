@@ -35,6 +35,25 @@ SONNET = "claude-sonnet-4-20250514"
 OPUS = "claude-opus-4-0-20250514"
 
 
+def _match_supplier_from_ocr(ocr_text: str, supplier_mem: JsonSupplierMemory) -> str | None:
+    """Try to identify a known supplier from OCR text.
+
+    Checks if any known supplier name appears in the OCR text (case-insensitive).
+    Returns the supplier_id if found, None otherwise.
+    """
+    if not ocr_text:
+        return None
+    ocr_lower = ocr_text.lower()
+    try:
+        suppliers = supplier_mem.list_suppliers()
+    except Exception:
+        return None
+    for sid, name in suppliers.items():
+        if name.lower() in ocr_lower:
+            return sid
+    return None
+
+
 def _get_model_for_scan(mode: str, scan_number: int) -> str:
     """
     Return the correct model for a given mode and scan number.
@@ -184,7 +203,13 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         ]
 
         # Step 1b: ROI segmentation (layout-aware when supplier is known)
-        segmentation_result = segment_invoice(original)
+        # Try to identify supplier from OCR text to load saved layout
+        supplier_mem = JsonSupplierMemory()
+        saved_layout = None
+        early_sid = _match_supplier_from_ocr(ocr_text, supplier_mem)
+        if early_sid:
+            saved_layout = supplier_mem.get_layout(early_sid)
+        segmentation_result = segment_invoice(original, saved_layout=saved_layout)
 
         # Step 2: Scan 1 — Primary extraction
         model1 = _get_model_for_scan(mode, 1)
@@ -234,13 +259,11 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             math_validation_triggered = True
 
         # Step 7: Three-tier inference for missing/low-confidence fields
+        sid = None
         try:
             supplier_name = result.get("supplier", "")
             if supplier_name:
                 sid = normalize_supplier_id(supplier_name)
-            else:
-                sid = None
-            supplier_mem = JsonSupplierMemory()
             general_mem = JsonGeneralMemory()
             result = run_inference(result, sid, supplier_mem, general_mem)
         except Exception as e:
