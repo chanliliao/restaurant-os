@@ -607,7 +607,13 @@ Phase 16:  [x] Complete — Batch upload, tabs, dashboard, debug mode
   - Debug param wired through to backend
   - 364 total passing tests, frontend builds cleanly
   - Files: tracking/__init__.py, accuracy.py, api_usage.py (new), views.py, urls.py (updated), ScanStats.tsx, ResultTabs.tsx, Dashboard.tsx (new), DropZone.tsx, App.tsx, scan.ts, api.ts, app.css (updated)
-Phase 17:  [ ] Not started — Integration testing + golden test set
+Phase 17:  [x] Complete — Integration testing + golden test set
+  - 35 integration tests in 6 classes: clean receipt pipeline, math validation, tiebreaker, inference, mode comparison, full API flow
+  - Synthetic image builder + mock Claude response builder in integration_helpers.py
+  - All mocks properly scoped: _call_claude, _tier3_ai, pytesseract
+  - Temp directory cleanup for test isolation
+  - 75 total passing tests (40 existing + 35 new), frontend builds cleanly
+  - Files: integration_helpers.py, test_integration.py (new)
 ```
 
 ---
