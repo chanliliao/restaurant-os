@@ -60,3 +60,28 @@ export interface ConfirmResponse {
   corrections_count: number;
   confirmed_at: string;
 }
+
+/** A single tab in the multi-scan result view */
+export interface ScanTab {
+  id: string;
+  filename: string;
+  status: "scanning" | "done" | "error";
+  result?: ScanResponse;
+  error?: string;
+  confirmed: boolean;
+}
+
+/** Aggregated stats response from GET /api/stats/ */
+export interface StatsResponse {
+  accuracy: {
+    total_scans: number;
+    average_accuracy: number;
+    total_corrections: number;
+    by_mode: Record<string, { count: number; average_accuracy: number; total_corrections: number }>;
+    by_supplier: Record<string, { count: number; average_accuracy: number; total_corrections: number }>;
+  };
+  api_usage: {
+    total_calls: Record<string, number>;
+    by_mode: Record<string, Record<string, number>>;
+  };
+}

@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ScanMode, ScanResponse, ConfirmRequest, ConfirmResponse } from "../types/scan.ts";
+import type { ScanMode, ScanResponse, ConfirmRequest, ConfirmResponse, StatsResponse } from "../types/scan.ts";
 
 const client = axios.create({
   baseURL: "/api",
@@ -37,5 +37,13 @@ export async function confirmScan(
   data: ConfirmRequest
 ): Promise<ConfirmResponse> {
   const response = await client.post<ConfirmResponse>("/confirm/", data);
+  return response.data;
+}
+
+/**
+ * Fetch aggregated accuracy and API usage stats.
+ */
+export async function getStats(): Promise<StatsResponse> {
+  const response = await client.get<StatsResponse>("/stats/");
   return response.data;
 }
