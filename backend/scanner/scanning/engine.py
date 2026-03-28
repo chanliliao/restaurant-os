@@ -16,6 +16,8 @@ import anthropic
 from PIL import Image
 
 from scanner.preprocessing import prepare_variants
+from scanner.preprocessing.segmentation import segment_invoice
+from scanner.preprocessing.layout import build_layout_descriptor
 from scanner.scanning.ocr import ocr_prepass
 from scanner.scanning.prompts import (
     build_scan_prompt,
@@ -181,6 +183,9 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             },
         ]
 
+        # Step 1b: ROI segmentation (layout-aware when supplier is known)
+        segmentation_result = segment_invoice(original)
+
         # Step 2: Scan 1 — Primary extraction
         model1 = _get_model_for_scan(mode, 1)
         prompt1 = build_scan_prompt(ocr_text)
@@ -240,6 +245,20 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             result = run_inference(result, sid, supplier_mem, general_mem)
         except Exception as e:
             logger.warning("Inference step failed (non-fatal): %s", e)
+
+        # Step 7b: Save layout descriptor for supplier if not already saved
+        try:
+            if sid and segmentation_result.get("regions_detected"):
+                existing_layout = supplier_mem.get_layout(sid)
+                if existing_layout is None:
+                    layout_desc = build_layout_descriptor(
+                        result,
+                        segmentation_result["bounding_boxes"],
+                        original.size,
+                    )
+                    supplier_mem.update_layout(sid, layout_desc)
+        except Exception as e:
+            logger.warning("Layout saving failed (non-fatal): %s", e)
 
         # Step 8: Attach scan metadata
         elapsed = time.time() - start_time
