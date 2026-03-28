@@ -598,7 +598,15 @@ Phase 15:  [x] Complete — Supplier layout mapping
   - Layout saved to {supplier_id}/layout.json after first successful scan
   - 353 total passing tests (332 + 21 new layout/segmentation tests)
   - Files: layout.py (new), segmentation.py (updated), engine.py (updated), json_store.py (updated), preprocessing/__init__.py (updated), test_layout.py (new), test_segmentation_layout.py (new), test_engine_layout.py (new)
-Phase 16:  [ ] Not started — Batch upload, tabs, dashboard, debug mode (React)
+Phase 16:  [x] Complete — Batch upload, tabs, dashboard, debug mode
+  - Backend: accuracy tracker + API usage tracker in scanner/tracking/, GET /api/stats/ endpoint
+  - Tracking wired into confirm endpoint (records accuracy + API usage per scan)
+  - DropZone updated for multi-file upload with queued file display
+  - ResultTabs: tabbed view with per-invoice ScanStats + InvoiceForm + ItemsTable
+  - Dashboard: accuracy cards, mode comparison table, API usage summary from /api/stats/
+  - Debug param wired through to backend
+  - 364 total passing tests, frontend builds cleanly
+  - Files: tracking/__init__.py, accuracy.py, api_usage.py (new), views.py, urls.py (updated), ScanStats.tsx, ResultTabs.tsx, Dashboard.tsx (new), DropZone.tsx, App.tsx, scan.ts, api.ts, app.css (updated)
 Phase 17:  [ ] Not started — Integration testing + golden test set
 ```
 
