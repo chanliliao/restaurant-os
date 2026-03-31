@@ -558,6 +558,62 @@ body {
   color: #92400e;
 }
 
+/* ===== Quota Bar (scan screen) ===== */
+.quota-bar {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.quota-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.quota-bar__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #166534;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.quota-bar__count {
+  font-size: 0.85rem;
+  color: #374151;
+  font-weight: 500;
+}
+
+.quota-bar__remaining {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.quota-bar__track {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.quota-bar__track--dashboard {
+  margin-top: 0.75rem;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.quota-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
 /* ===== Dashboard ===== */
 .dashboard {
   background: #fff;

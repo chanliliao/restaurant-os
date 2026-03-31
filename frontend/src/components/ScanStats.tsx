@@ -14,7 +14,8 @@ export default function ScanStats({ metadata }: ScanStatsProps) {
         {metadata.scans_performed} scan{metadata.scans_performed !== 1 ? "s" : ""}
       </span>
       <span className="scan-stats__badge">
-        {metadata.api_calls} API call{metadata.api_calls !== 1 ? "s" : ""}
+        {Object.values(metadata.api_calls).reduce((a, b) => a + b, 0)} API call
+        {Object.values(metadata.api_calls).reduce((a, b) => a + b, 0) !== 1 ? "s" : ""}
       </span>
       {metadata.models_used.map((m) => (
         <span key={m} className="scan-stats__badge scan-stats__badge--model">

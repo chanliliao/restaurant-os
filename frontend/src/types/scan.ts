@@ -27,7 +27,7 @@ export interface ScanResponse {
     scans_performed: number;
     tiebreaker_triggered: boolean;
     math_validation_triggered: boolean;
-    api_calls: number;
+    api_calls: Record<string, number>;
     models_used: string[];
     preprocessing: Record<string, unknown>;
   };
@@ -69,6 +69,14 @@ export interface ScanTab {
   result?: ScanResponse;
   error?: string;
   confirmed: boolean;
+}
+
+/** Gemini quota status from GET /api/quota/ */
+export interface QuotaResponse {
+  used_today: number;
+  daily_limit: number;
+  remaining: number;
+  per_minute_limit: number;
 }
 
 /** Aggregated stats response from GET /api/stats/ */

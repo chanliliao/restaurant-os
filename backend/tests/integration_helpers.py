@@ -4,6 +4,7 @@ Helpers for integration tests.
 Provides:
 - make_receipt_image_bytes(): synthetic PIL image as PNG bytes
 - make_claude_response(): builds a JSON string matching engine expectations
+- make_gemini_light_side_effects(): list of mock responses for _scan_light's _call_gemini calls
 """
 
 import io
@@ -142,3 +143,71 @@ def make_claude_response(
         "inference_sources": inference_sources,
     }
     return json.dumps(payload)
+
+
+def make_gemini_light_side_effects(
+    supplier: str = "Fresh Foods Inc.",
+    date: str = "2026-03-15",
+    invoice_number: str = "INV-1234",
+    items: list[dict] | None = None,
+    subtotal: float = 21.50,
+    tax: float = 2.15,
+    total: float = 23.65,
+) -> list[str]:
+    """Return a list of 5 JSON strings for mocking _call_gemini in _scan_light.
+
+    _scan_light calls _call_gemini in order:
+      1. Description pre-pass
+      2. Header vote 1  (temp=0)
+      3. Header vote 2  (temp=0.2)
+      4. Header vote 3  (temp=0.4)
+      5. Items + totals scan
+
+    All 5 calls receive the same "universal" response so each parsing step
+    finds the keys it needs.
+    """
+    if items is None:
+        items = [
+            {
+                "name": "Organic Tomatoes",
+                "quantity": 5,
+                "unit": "kg",
+                "unit_price": 3.50,
+                "total": 17.50,
+                "confidence": 92,
+            },
+            {
+                "name": "Fresh Basil",
+                "quantity": 2,
+                "unit": "bunch",
+                "unit_price": 2.00,
+                "total": 4.00,
+                "confidence": 88,
+            },
+        ]
+
+    universal = json.dumps({
+        # Description call
+        "description": f"{supplier} invoice {invoice_number} dated {date}",
+        # Header fields
+        "supplier": supplier,
+        "invoice_number": invoice_number,
+        "date": date,
+        "readable": {"supplier": True, "invoice_number": True, "date": True},
+        # Items/totals fields
+        "items": items,
+        "subtotal": subtotal,
+        "tax": tax,
+        "total": total,
+        # Confidence + sources (high confidence prevents retry)
+        "confidence": {
+            "supplier": 95, "date": 90, "invoice_number": 85,
+            "subtotal": 88, "tax": 80, "total": 92,
+        },
+        "inference_sources": {
+            "supplier": "scanned", "date": "scanned",
+            "invoice_number": "scanned", "subtotal": "scanned",
+            "tax": "scanned", "total": "scanned",
+        },
+    })
+    return [universal] * 5

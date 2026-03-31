@@ -276,6 +276,26 @@ def merge_results(
             "inference_sources", scan1.get("inference_sources", {})
         )
 
+        # Cap confidence for fields where the two scans disagreed.
+        # If two independent scans couldn't agree, confidence can't be 100%.
+        max_disagreed_confidence = 75
+        for field in comparison["disagreed"]:
+            if field in merged.get("confidence", {}):
+                current = merged["confidence"][field]
+                if isinstance(current, (int, float)) and current > max_disagreed_confidence:
+                    logger.info(
+                        "Capping confidence for disagreed field '%s': %s -> %s",
+                        field, current, max_disagreed_confidence,
+                    )
+                    merged["confidence"][field] = max_disagreed_confidence
+
+        # Cap item-level confidence if items had disagreements
+        if items_comp["disagreed"]:
+            for item in merged.get("items", []):
+                if isinstance(item.get("confidence"), (int, float)):
+                    if item["confidence"] > max_disagreed_confidence:
+                        item["confidence"] = max_disagreed_confidence
+
     # Remove scan_metadata from merge result (engine adds its own)
     merged.pop("scan_metadata", None)
 

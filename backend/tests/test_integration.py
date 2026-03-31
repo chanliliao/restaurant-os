@@ -18,16 +18,24 @@ from unittest.mock import patch, MagicMock, call
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from scanner.scanning.engine import scan_invoice, SONNET, OPUS
+from scanner.scanning.engine import scan_invoice, SONNET, OPUS, GEMINI_FLASH
 from scanner.memory import JsonSupplierMemory, JsonGeneralMemory
-from tests.integration_helpers import make_receipt_image_bytes, make_claude_response
+from tests.integration_helpers import (
+    make_receipt_image_bytes,
+    make_claude_response,
+    make_gemini_light_side_effects,
+)
 
 
 # ---------------------------------------------------------------------------
 # Shared mock target paths
 # ---------------------------------------------------------------------------
 
-CALL_CLAUDE = "scanner.scanning.engine._call_claude"
+# Normal/heavy mode: scan_invoice() routes through _call_api which dispatches
+# to _call_gemini (since _get_model_for_scan always returns GEMINI_FLASH now).
+# Patching _call_api intercepts both Claude and Gemini paths.
+CALL_CLAUDE = "scanner.scanning.engine._call_api"
+CALL_GEMINI = "scanner.scanning.engine._call_gemini"
 TIER3_AI = "scanner.memory.inference._tier3_ai"
 OCR_PREPASS = "scanner.scanning.ocr.pytesseract"
 
@@ -490,77 +498,86 @@ class TestModeComparison(TestCase):
         self.tiebreaker = make_claude_response(supplier="Fresh Foods Inc.", total=23.65)
 
     def _get_models_used(self, mock_call):
-        """Extract the 'model' argument from each _call_claude invocation."""
+        """Extract the 'model' argument from each _call_api invocation."""
         return [c.args[2] for c in mock_call.call_args_list]
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
-    @patch(CALL_CLAUDE)
-    def test_light_mode_uses_only_sonnet(
+    @patch(CALL_GEMINI)
+    def test_light_mode_uses_only_gemini(
         self, mock_call, mock_tess, mock_tier3
     ):
+        """Light mode: all scans use GEMINI_FLASH (OCR-first pipeline)."""
         mock_tess.image_to_string.return_value = ""
-        mock_call.return_value = self.agree_response
+        mock_call.side_effect = make_gemini_light_side_effects()
         scan_invoice(self.image_bytes, mode="light")
-        models = self._get_models_used(mock_call)
-        self.assertTrue(all(m == SONNET for m in models), f"Expected all SONNET, got {models}")
+        models = [c.args[2] for c in mock_call.call_args_list]
+        self.assertTrue(
+            all(m == GEMINI_FLASH for m in models),
+            f"Expected all GEMINI_FLASH, got {models}",
+        )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_heavy_mode_uses_only_opus(
+    def test_heavy_mode_uses_only_gemini(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Heavy mode: all scans use OPUS (including tiebreaker if triggered)."""
+        """Heavy mode: all scans use GEMINI_FLASH (Claude credits unavailable)."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         scan_invoice(self.image_bytes, mode="heavy")
         models = self._get_models_used(mock_call)
-        self.assertTrue(all(m == OPUS for m in models), f"Expected all OPUS, got {models}")
+        self.assertTrue(
+            all(m == GEMINI_FLASH for m in models),
+            f"Expected all GEMINI_FLASH, got {models}",
+        )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_normal_mode_scans_1_2_use_sonnet(
+    def test_normal_mode_scans_1_2_use_gemini(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Normal mode without tiebreaker: both scans use SONNET."""
+        """Normal mode without tiebreaker: both scans use GEMINI_FLASH."""
         mock_tess.image_to_string.return_value = ""
         mock_call.return_value = self.agree_response
         scan_invoice(self.image_bytes, mode="normal")
         models = self._get_models_used(mock_call)
         self.assertEqual(len(models), 2)
-        self.assertEqual(models[0], SONNET)
-        self.assertEqual(models[1], SONNET)
+        self.assertEqual(models[0], GEMINI_FLASH)
+        self.assertEqual(models[1], GEMINI_FLASH)
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_normal_mode_tiebreaker_uses_opus(
+    def test_normal_mode_tiebreaker_uses_gemini(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Normal mode with tiebreaker: scans 1+2 use SONNET, tiebreaker uses OPUS."""
+        """Normal mode with tiebreaker: all 3 passes use GEMINI_FLASH."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         scan_invoice(self.image_bytes, mode="normal")
         models = self._get_models_used(mock_call)
         self.assertEqual(len(models), 3)
-        self.assertEqual(models[0], SONNET)
-        self.assertEqual(models[1], SONNET)
-        self.assertEqual(models[2], OPUS)
+        self.assertTrue(
+            all(m == GEMINI_FLASH for m in models),
+            f"Expected all GEMINI_FLASH, got {models}",
+        )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
-    @patch(CALL_CLAUDE)
+    @patch(CALL_GEMINI)
     def test_scan_metadata_api_calls_counts_correct_for_light(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Light mode: api_calls.sonnet=2, api_calls.opus=0."""
+        """Light mode: api_calls.gemini>=1, api_calls.sonnet=0, api_calls.opus=0."""
         mock_tess.image_to_string.return_value = ""
-        mock_call.return_value = self.agree_response
+        mock_call.side_effect = make_gemini_light_side_effects()
         result = scan_invoice(self.image_bytes, mode="light")
         api_calls = result["scan_metadata"]["api_calls"]
-        self.assertEqual(api_calls["sonnet"], 2)
+        self.assertGreaterEqual(api_calls["gemini"], 1)
+        self.assertEqual(api_calls["sonnet"], 0)
         self.assertEqual(api_calls["opus"], 0)
 
     @patch(TIER3_AI, return_value=None)
@@ -569,13 +586,13 @@ class TestModeComparison(TestCase):
     def test_scan_metadata_api_calls_counts_correct_for_heavy_with_tiebreaker(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Heavy mode with tiebreaker: api_calls.sonnet=0, api_calls.opus=3."""
+        """Heavy mode with tiebreaker: api_calls.gemini=3, api_calls.opus=0."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         result = scan_invoice(self.image_bytes, mode="heavy")
         api_calls = result["scan_metadata"]["api_calls"]
-        self.assertEqual(api_calls["sonnet"], 0)
-        self.assertEqual(api_calls["opus"], 3)
+        self.assertEqual(api_calls["gemini"], 3)
+        self.assertEqual(api_calls["opus"], 0)
 
 
 # ===========================================================================

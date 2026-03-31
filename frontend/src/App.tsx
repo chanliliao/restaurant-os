@@ -3,6 +3,7 @@ import DropZone from "./components/DropZone.tsx";
 import ScanControls from "./components/ScanControls.tsx";
 import ResultTabs from "./components/ResultTabs.tsx";
 import Dashboard from "./components/Dashboard.tsx";
+import QuotaBar from "./components/QuotaBar.tsx";
 import { scanInvoice, confirmScan } from "./services/api.ts";
 import type { ScanMode, ScanTab, FieldCorrection } from "./types/scan.ts";
 import "./styles/app.css";
@@ -17,6 +18,7 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [quotaRefresh, setQuotaRefresh] = useState(0);
 
   // Per-tab corrections stored by tab id
   const headerCorrections = useRef<Record<string, FieldCorrection[]>>({});
@@ -63,6 +65,7 @@ export default function App() {
       }
 
       setScanning(false);
+      setQuotaRefresh((v) => v + 1);
     },
     [mode, debug]
   );
@@ -140,6 +143,8 @@ export default function App() {
               onDebugChange={setDebug}
               disabled={scanning}
             />
+
+            <QuotaBar mode={mode} refreshKey={quotaRefresh} />
 
             <DropZone onFilesSelected={processFiles} disabled={scanning} />
 

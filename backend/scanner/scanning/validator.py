@@ -6,9 +6,16 @@ consensus-based merging cannot detect.
 """
 
 import copy
+import re
 from typing import Any
 
 TOLERANCE = 0.01
+
+# Default bottle deposit price per bottle
+BOTTLE_DEPOSIT_PRICE = 0.05
+
+# Pattern to extract pack format from item names: "X/Y/Zml"
+_PACK_FORMAT_RE = re.compile(r"\((\d+)/(\d+)/\d+\s*ml\)", re.IGNORECASE)
 
 
 def _approx_eq(a: float, b: float) -> bool:
@@ -110,6 +117,75 @@ def validate_math(scan_result: dict) -> dict:
                 ),
             })
 
+    # --- Check 4: Bottle deposit quantities ---
+    # For beverage invoices, validate that bottle deposit qty matches
+    # the number of bottles derived from the preceding case item.
+    for i, item in enumerate(items):
+        name = str(item.get("name", "")).lower()
+        if "bottle deposit" not in name:
+            continue
+
+        # Look backwards for the nearest beverage case item
+        beverage_item = None
+        for j in range(i - 1, -1, -1):
+            prev_name = str(items[j].get("name", ""))
+            m = _PACK_FORMAT_RE.search(prev_name)
+            if m:
+                beverage_item = items[j]
+                packs = int(m.group(1))
+                units_per_pack = int(m.group(2))
+                bottles_per_case = packs * units_per_pack
+                break
+
+        if beverage_item is None:
+            continue
+
+        case_qty = _safe_float(beverage_item.get("quantity"))
+        deposit_qty = _safe_float(item.get("quantity"))
+        deposit_price = _safe_float(item.get("unit_price"))
+        deposit_total = _safe_float(item.get("total"))
+
+        if case_qty is None:
+            continue
+
+        expected_bottles = int(case_qty) * bottles_per_case
+        expected_total = round(expected_bottles * BOTTLE_DEPOSIT_PRICE, 2)
+
+        if deposit_qty is not None and not _approx_eq(deposit_qty, expected_bottles):
+            errors.append({
+                "field": f"item[{i}].quantity",
+                "expected": expected_bottles,
+                "actual": deposit_qty,
+                "description": (
+                    f"Bottle deposit qty: {int(case_qty)} cases x "
+                    f"{bottles_per_case} bottles/case = {expected_bottles}, "
+                    f"got {deposit_qty}"
+                ),
+                "_deposit_correction": {
+                    "index": i,
+                    "quantity": expected_bottles,
+                    "unit_price": BOTTLE_DEPOSIT_PRICE,
+                    "total": expected_total,
+                },
+            })
+        elif deposit_total is not None and not _approx_eq(deposit_total, expected_total):
+            errors.append({
+                "field": f"item[{i}].total",
+                "expected": expected_total,
+                "actual": deposit_total,
+                "description": (
+                    f"Bottle deposit total: {expected_bottles} x "
+                    f"${BOTTLE_DEPOSIT_PRICE} = ${expected_total}, "
+                    f"got ${deposit_total}"
+                ),
+                "_deposit_correction": {
+                    "index": i,
+                    "quantity": expected_bottles,
+                    "unit_price": BOTTLE_DEPOSIT_PRICE,
+                    "total": expected_total,
+                },
+            })
+
     return {
         "valid": len(errors) == 0,
         "errors": errors,
@@ -137,9 +213,23 @@ def auto_correct(scan_result: dict, errors: list[dict]) -> dict:
     if not errors:
         return corrected
 
+    # Pass 0: Fix bottle deposit items (qty, unit_price, total together)
+    for error in errors:
+        correction = error.get("_deposit_correction")
+        if correction is None:
+            continue
+        idx = correction["index"]
+        if idx < len(corrected["items"]):
+            corrected["items"][idx]["quantity"] = correction["quantity"]
+            corrected["items"][idx]["unit_price"] = correction["unit_price"]
+            corrected["items"][idx]["total"] = correction["total"]
+            corrected["items"][idx]["unit"] = "bottle"
+
     # Pass 1: Fix line totals
     for error in errors:
         field = error["field"]
+        if "_deposit_correction" in error:
+            continue  # Already handled in Pass 0
         if field.startswith("item[") and field.endswith("].total"):
             # Extract index
             idx_str = field[5:field.index("]")]

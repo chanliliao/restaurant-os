@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ScanMode, ScanResponse, ConfirmRequest, ConfirmResponse, StatsResponse } from "../types/scan.ts";
+import type { ScanMode, ScanResponse, ConfirmRequest, ConfirmResponse, StatsResponse, QuotaResponse } from "../types/scan.ts";
 
 const client = axios.create({
   baseURL: "/api",
@@ -46,5 +46,13 @@ export async function confirmScan(
  */
 export async function getStats(): Promise<StatsResponse> {
   const response = await client.get<StatsResponse>("/stats/");
+  return response.data;
+}
+
+/**
+ * Fetch Gemini free tier quota status (light mode only).
+ */
+export async function getQuota(): Promise<QuotaResponse> {
+  const response = await client.get<QuotaResponse>("/quota/");
   return response.data;
 }

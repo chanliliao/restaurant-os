@@ -98,6 +98,9 @@ REST_FRAMEWORK = {
 # Anthropic
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+# Google Gemini (used for light mode)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
 # Data directory for supplier memory and stats
 DATA_DIR = BASE_DIR / "data"
 

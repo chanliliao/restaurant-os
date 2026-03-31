@@ -154,6 +154,37 @@ def upscale(image, target_min: int = 1000) -> Image.Image:
     return pil_img.resize((new_width, new_height), Image.LANCZOS)
 
 
+def remove_stripes(image) -> Image.Image:
+    """
+    Remove horizontal striped backgrounds (alternating row colors)
+    common on pre-printed invoice forms.
+
+    Uses adaptive thresholding to separate dark text from the
+    lighter striped background, producing a clean binary image
+    that OCR can read much more accurately.
+
+    Args:
+        image: PIL Image or numpy ndarray (should be grayscale).
+
+    Returns:
+        Cleaned PIL Image with stripes removed (grayscale).
+    """
+    pil_img = _to_pil(image)
+    gray = np.array(pil_img.convert("L"))
+
+    # Adaptive threshold separates text from background regardless
+    # of local brightness variations (stripes, watermarks, etc.)
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=31,  # Large block to smooth over stripe width
+        C=15,          # Bias toward keeping text dark
+    )
+
+    return Image.fromarray(binary, mode="L")
+
+
 def to_grayscale(image) -> Image.Image:
     """
     Convert image to grayscale.
@@ -180,15 +211,16 @@ def selective_process(image, quality_report: dict) -> Image.Image:
     1. Upscale (if resolution issue)
     2. Denoise (if noise issue)
     3. Enhance contrast (if contrast issue)
-    4. Sharpen (if blur issue)
+    4. Sharpen (if blur issue — stronger for severe blur)
     5. Convert to grayscale (always)
+    6. Remove stripes (always — handles form backgrounds, watermarks)
 
     Args:
         image: PIL Image or numpy ndarray.
         quality_report: Dict returned by analyze_quality().
 
     Returns:
-        Processed PIL Image (grayscale).
+        Processed PIL Image (grayscale, stripes removed).
     """
     result = _to_pil(image)
 
@@ -202,9 +234,68 @@ def selective_process(image, quality_report: dict) -> Image.Image:
         result = enhance_contrast(result)
 
     if quality_report["blur"]["issue"]:
-        result = sharpen(result)
+        blur_val = quality_report["blur"].get("value", 100)
+        if blur_val < 50:
+            # Severe blur: apply sharpening twice for stronger effect
+            result = sharpen(result)
+            result = sharpen(result)
+        else:
+            result = sharpen(result)
 
     result = to_grayscale(result)
+    return result
+
+
+def prepare_alternative_variant(image, quality_report: dict) -> Image.Image:
+    """
+    Produce a differently-processed image variant for retry scanning.
+
+    Uses more aggressive parameters than the primary pipeline:
+    - Higher CLAHE clip limit (4.0 vs 2.0) for stronger contrast
+    - Stronger sharpening (2.0 weight vs 1.5)
+    - Inverted grayscale (white text on black background)
+
+    Args:
+        image: PIL Image or numpy ndarray.
+        quality_report: Dict returned by analyze_quality().
+
+    Returns:
+        Alternative processed PIL Image (inverted grayscale).
+    """
+    result = _to_pil(image)
+
+    if quality_report["resolution"]["issue"]:
+        result = upscale(result)
+
+    if quality_report["noise"]["issue"]:
+        result = denoise(result)
+
+    # Aggressive contrast enhancement
+    pil_img = result
+    cv_img = _to_cv(pil_img)
+    if cv_img.ndim == 2:
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(cv_img)
+        result = Image.fromarray(enhanced, mode="L")
+    else:
+        lab = cv2.cvtColor(cv_img, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+        l_channel = clahe.apply(l_channel)
+        lab = cv2.merge([l_channel, a_channel, b_channel])
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        result = _to_pil(enhanced)
+
+    # Stronger sharpening
+    cv_img = _to_cv(result)
+    blurred = cv2.GaussianBlur(cv_img, (0, 0), sigmaX=3)
+    sharpened = cv2.addWeighted(cv_img, 2.0, blurred, -1.0, 0)
+    result = _to_pil(sharpened)
+
+    # Convert to grayscale and invert
+    result = result.convert("L")
+    result = Image.eval(result, lambda x: 255 - x)
+
     return result
 
 

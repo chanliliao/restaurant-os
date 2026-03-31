@@ -54,6 +54,50 @@ def record_api_usage(scan_id: str, mode: str, api_calls: dict) -> None:
         _write_usage_data(path, data)
 
 
+def _get_gemini_log_path() -> str:
+    """Return path to Gemini daily call log."""
+    stats_dir = Path(settings.BASE_DIR).parent / "data" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    return str(stats_dir / "gemini_calls.json")
+
+
+def record_gemini_call() -> None:
+    """Record a single Gemini API call with timestamp."""
+    path = _get_gemini_log_path()
+    with _lock:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                data = json.load(f)
+        else:
+            data = {"calls": []}
+        data["calls"].append(datetime.now(timezone.utc).isoformat())
+        _write_usage_data(path, data)
+
+
+def get_gemini_quota() -> dict:
+    """Return today's Gemini usage vs limits."""
+    path = _get_gemini_log_path()
+    daily_limit = 500
+    per_minute_limit = 10
+
+    with _lock:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                data = json.load(f)
+        else:
+            data = {"calls": []}
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    today_calls = sum(1 for ts in data["calls"] if ts.startswith(today))
+
+    return {
+        "used_today": today_calls,
+        "daily_limit": daily_limit,
+        "remaining": max(0, daily_limit - today_calls),
+        "per_minute_limit": per_minute_limit,
+    }
+
+
 def get_usage_stats() -> dict:
     """Aggregate API usage statistics."""
     path = _get_usage_path()

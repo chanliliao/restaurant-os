@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-VALID_MODES = ("light", "normal", "heavy")
+VALID_MODES = ("light", "normal", "heavy", "glm")
 
 class ScanRequestSerializer(serializers.Serializer):
     image = serializers.ImageField(required=True)

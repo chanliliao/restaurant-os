@@ -9,6 +9,7 @@ Handles graceful degradation when Tesseract is not installed.
 """
 
 import logging
+import os
 
 import numpy as np
 import pytesseract
@@ -16,6 +17,11 @@ from pytesseract import TesseractNotFoundError
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# Allow configuring Tesseract path via environment variable
+_tesseract_cmd = os.getenv("TESSERACT_CMD")
+if _tesseract_cmd and os.path.isfile(_tesseract_cmd):
+    pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +87,41 @@ def extract_text_from_regions(regions_dict: dict) -> dict:
         else:
             results[region_name] = extract_text(image)
     return results
+
+
+def extract_text_enhanced(image) -> str:
+    """
+    Run Tesseract OCR with multiple configurations and merge results.
+
+    Uses both default and code-optimized settings (PSM 6 for block text)
+    to better capture alphanumeric codes like invoice numbers.
+
+    Args:
+        image: PIL Image or numpy ndarray.
+
+    Returns:
+        Combined text from multiple OCR passes.
+    """
+    try:
+        pil_image = _to_pil(image)
+        # Default pass
+        text1 = pytesseract.image_to_string(pil_image)
+        # Block-level pass with alphanumeric focus
+        text2 = pytesseract.image_to_string(
+            pil_image,
+            config="--psm 6",
+        )
+        # Combine unique lines
+        lines1 = set(text1.strip().split("\n"))
+        lines2 = set(text2.strip().split("\n"))
+        all_lines = lines1 | lines2
+        return "\n".join(line for line in all_lines if line.strip())
+    except TesseractNotFoundError:
+        logger.warning("Tesseract not installed — OCR skipped.")
+        return ""
+    except Exception:
+        logger.warning("Enhanced OCR extraction failed.", exc_info=True)
+        return ""
 
 
 def ocr_prepass(image) -> str:

@@ -16,7 +16,7 @@ from scanner.memory import (
 from scanner.serializers import ScanRequestSerializer, ConfirmRequestSerializer
 from scanner.scanning.engine import scan_invoice
 from scanner.tracking.accuracy import record_scan_accuracy, get_accuracy_stats
-from scanner.tracking.api_usage import record_api_usage, get_usage_stats
+from scanner.tracking.api_usage import record_api_usage, get_usage_stats, get_gemini_quota
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +153,9 @@ def stats_view(request):
         "accuracy": get_accuracy_stats(),
         "api_usage": get_usage_stats(),
     })
+
+
+@api_view(["GET"])
+def quota_view(request):
+    """Return Gemini free tier quota status for light mode."""
+    return Response(get_gemini_quota())
