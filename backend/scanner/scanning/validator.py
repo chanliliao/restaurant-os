@@ -210,6 +210,18 @@ def auto_correct(scan_result: dict, errors: list[dict]) -> dict:
     """
     corrected = copy.deepcopy(scan_result)
 
+    # Always fill missing totals from line items, even when there are no errors.
+    # This handles invoices where GLM-OCR captures items but misses the footer totals.
+    items_for_fill = corrected.get("items") or []
+    all_item_totals = [_safe_float(it.get("total")) for it in items_for_fill]
+    if all(t is not None for t in all_item_totals) and len(all_item_totals) > 0:
+        if _safe_float(corrected.get("subtotal")) is None:
+            corrected["subtotal"] = round(sum(all_item_totals), 2)
+        if _safe_float(corrected.get("total")) is None:
+            sub_val = _safe_float(corrected.get("subtotal"))
+            tax_val = _safe_float(corrected.get("tax")) or 0.0
+            corrected["total"] = round(sub_val + tax_val, 2)
+
     if not errors:
         return corrected
 
