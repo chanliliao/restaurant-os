@@ -154,17 +154,15 @@ def make_gemini_light_side_effects(
     tax: float = 2.15,
     total: float = 23.65,
 ) -> list[str]:
-    """Return a list of 5 JSON strings for mocking _call_gemini in _scan_light.
+    """Return JSON strings for mocking _call_gemini in _scan_light.
 
-    _scan_light calls _call_gemini in order:
-      1. Description pre-pass
-      2. Header vote 1  (temp=0)
-      3. Header vote 2  (temp=0.2)
-      4. Header vote 3  (temp=0.4)
-      5. Items + totals scan
+    The new GLM-OCR-first light mode calls _call_gemini only 1-2 times:
+      1. Smart pass (always)
+      2. Verification pass (conditional, if readable:false fields found)
 
-    All 5 calls receive the same "universal" response so each parsing step
-    finds the keys it needs.
+    Returns 5 identical responses so tests work regardless of whether
+    the verification pass fires.  All responses use the same "universal"
+    JSON so every parsing step finds the keys it needs.
     """
     if items is None:
         items = [

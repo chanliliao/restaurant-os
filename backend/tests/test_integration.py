@@ -36,6 +36,7 @@ from tests.integration_helpers import (
 # Patching _call_api intercepts both Claude and Gemini paths.
 CALL_CLAUDE = "scanner.scanning.engine._call_api"
 CALL_GEMINI = "scanner.scanning.engine._call_gemini"
+CALL_GLM_OCR = "scanner.scanning.engine._call_glm_ocr"
 TIER3_AI = "scanner.memory.inference._tier3_ai"
 OCR_PREPASS = "scanner.scanning.ocr.pytesseract"
 
@@ -503,11 +504,12 @@ class TestModeComparison(TestCase):
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
+    @patch(CALL_GLM_OCR, return_value="Fresh Foods Inc Invoice INV-1234 2026-03-15 Total: $23.65")
     @patch(CALL_GEMINI)
     def test_light_mode_uses_only_gemini(
-        self, mock_call, mock_tess, mock_tier3
+        self, mock_call, mock_glm, mock_tess, mock_tier3
     ):
-        """Light mode: all scans use GEMINI_FLASH (OCR-first pipeline)."""
+        """Light mode: all Gemini calls use GEMINI_FLASH (GLM-OCR-first pipeline)."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = make_gemini_light_side_effects()
         scan_invoice(self.image_bytes, mode="light")
@@ -567,9 +569,10 @@ class TestModeComparison(TestCase):
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
+    @patch(CALL_GLM_OCR, return_value="Fresh Foods Inc Invoice INV-1234 2026-03-15 Total: $23.65")
     @patch(CALL_GEMINI)
     def test_scan_metadata_api_calls_counts_correct_for_light(
-        self, mock_call, mock_tess, mock_tier3
+        self, mock_call, mock_glm, mock_tess, mock_tier3
     ):
         """Light mode: api_calls.gemini>=1, api_calls.sonnet=0, api_calls.opus=0."""
         mock_tess.image_to_string.return_value = ""

@@ -212,6 +212,53 @@ def _call_api(
     return _call_claude(prompt, images, model)
 
 
+def _optimize_for_glm(image_bytes: bytes) -> tuple[bytes, str]:
+    """
+    Optimize image bytes for GLM-OCR upload.
+
+    Large JPEGs (3-4MB) time out at the GLM API. This function:
+    - If > 1MB: resize longest edge to ≤2000px, encode as WebP quality 80
+    - If 500KB-1MB: encode as WebP quality 85 (keeps resolution)
+    - If < 500KB: return as-is with original media type
+
+    Returns:
+        (optimized_bytes, media_type)
+    """
+    size = len(image_bytes)
+    if size < 500_000:
+        # Detect media type
+        if image_bytes[:3] == b'\xff\xd8\xff':
+            return image_bytes, "image/jpeg"
+        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            return image_bytes, "image/png"
+        return image_bytes, "image/jpeg"
+
+    img = Image.open(io.BytesIO(image_bytes))
+    img.load()
+
+    if size > 1_000_000:
+        # Resize so longest edge is at most 2000px
+        w, h = img.size
+        max_edge = max(w, h)
+        if max_edge > 2000:
+            scale = 2000 / max_edge
+            new_size = (int(w * scale), int(h * scale))
+            img = img.resize(new_size, Image.LANCZOS)
+
+    quality = 80 if size > 1_000_000 else 85
+    buf = io.BytesIO()
+    # Convert to RGB before WebP (handles RGBA/palette modes)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.save(buf, format="WEBP", quality=quality, method=4)
+    optimized = buf.getvalue()
+    logger.debug(
+        "_optimize_for_glm: %d KB → %d KB (WebP q%d)",
+        size // 1024, len(optimized) // 1024, quality,
+    )
+    return optimized, "image/webp"
+
+
 def _call_glm_ocr(image_base64: str, media_type: str = "image/png") -> str:
     """
     Send an image to GLM-OCR and return extracted text as a single string.
@@ -286,17 +333,11 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     original = variants["original"]
     preprocessed = variants["preprocessed"]
 
-    # Step 1: GLM-OCR on the original image bytes (keep original format — JPEG stays JPEG)
-    # Do NOT convert through PIL/PNG: PNG can be 3-5x larger and may exceed the 10MB limit.
-    logger.info("GLM-OCR: sending image for document parsing")
-    raw_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    # Detect media type from magic bytes
-    if image_bytes[:3] == b'\xff\xd8\xff':
-        raw_media_type = "image/jpeg"
-    elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-        raw_media_type = "image/png"
-    else:
-        raw_media_type = "image/jpeg"  # fallback
+    # Step 1: GLM-OCR — optimize image size first to avoid timeouts on large JPEGs
+    logger.info("GLM-OCR: optimizing image for upload")
+    glm_bytes, raw_media_type = _optimize_for_glm(image_bytes)
+    raw_b64 = base64.b64encode(glm_bytes).decode("utf-8")
+    logger.info("GLM-OCR: sending %d KB as %s", len(glm_bytes) // 1024, raw_media_type)
     glm_text = _call_glm_ocr(raw_b64, media_type=raw_media_type)
     logger.info("GLM-OCR: extracted %d characters", len(glm_text))
 
@@ -343,6 +384,7 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
         has_header_crop=has_header_crop,
         has_binary_image=False,
         ocr_quality=ocr_quality,
+        ocr_source="glm",
     )
     response = _call_gemini(
         prompt, images, GEMINI_FLASH,
@@ -616,14 +658,19 @@ def _majority_vote_header(candidates: list[dict]) -> dict:
 
 def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     """
-    OCR-first pipeline for light mode: preprocess → OCR parse → single LLM pass.
+    GLM-OCR-first pipeline for light mode.
 
-    1. Preprocess image
-    2. Run Tesseract OCR
-    3. Parse OCR text into structured fields
-    4. Single Gemini call to validate OCR + fill gaps
+    Replaces the old Tesseract + 5-7 Gemini call approach with:
+    1. Preprocess image (for Gemini image variants)
+    2. GLM-OCR on optimized image bytes → rich HTML tables + text
+    3. Segment + Tesseract header OCR (cheap cross-reference)
+    4. Parse OCR text (HTML table-aware)
+    5. Single Gemini validation pass
+    6. Optional verification pass (if readable:false fields)
+    7. Math validation → inference → layout saving
 
-    Uses 1 API call instead of 2-3.
+    Gemini calls: 1 minimum, 2 maximum (vs old 5-7).
+    Falls back to Tesseract if GLM-OCR fails.
     """
     start_time = time.time()
 
@@ -634,24 +681,36 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     original = variants["original"]
     preprocessed = variants["preprocessed"]
 
-    # Step 1: OCR on full image (use stripe-removed version for better OCR)
-    ocr_image = remove_stripes(preprocessed)
-    ocr_text = ocr_prepass(ocr_image)
+    # Step 1: GLM-OCR on optimized image (resize+WebP to prevent timeouts)
+    ocr_source = "glm"
+    try:
+        glm_bytes, glm_media_type = _optimize_for_glm(image_bytes)
+        glm_b64 = base64.b64encode(glm_bytes).decode("utf-8")
+        logger.info(
+            "GLM-OCR (light): sending %d KB as %s",
+            len(glm_bytes) // 1024, glm_media_type,
+        )
+        glm_text = _call_glm_ocr(glm_b64, media_type=glm_media_type)
+        logger.info("GLM-OCR (light): extracted %d characters", len(glm_text))
+    except Exception as glm_err:
+        logger.warning("GLM-OCR failed, falling back to Tesseract: %s", glm_err)
+        ocr_source = "tesseract"
+        ocr_image = remove_stripes(preprocessed)
+        glm_text = ocr_prepass(ocr_image)
 
-    # Step 1b: Segment into regions and run enhanced OCR on header
+    # Step 2: Segment + enhanced header OCR (Tesseract, cheap cross-reference)
     segmentation_result = segment_invoice(original)
     header_ocr_text = ""
     if segmentation_result.get("header") is not None:
         header_ocr_text = extract_text_enhanced(segmentation_result["header"])
 
-    # Step 2: Parse OCR into structured fields (combine full + header OCR)
-    combined_ocr = ocr_text
+    # Step 3: Parse combined text (HTML table-aware via updated ocr_parser)
+    combined_text = glm_text
     if header_ocr_text.strip():
-        combined_ocr += "\n\n--- HEADER REGION OCR ---\n" + header_ocr_text
-    ocr_parsed = parse_ocr_text(combined_ocr)
+        combined_text += "\n\n--- HEADER REGION OCR ---\n" + header_ocr_text
+    ocr_parsed = parse_ocr_text(combined_text)
     ocr_data = ocr_parsed.to_dict()
 
-    # Step 2b: Assess OCR quality
     ocr_useful_fields = [k for k in ocr_data if k != "items"]
     ocr_has_items = bool(ocr_data.get("items"))
     ocr_field_count = len(ocr_useful_fields) + (1 if ocr_has_items else 0)
@@ -660,243 +719,90 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     elif ocr_field_count >= 1:
         ocr_quality = "poor"
     else:
-        ocr_quality = "failed"
-    if ocr_quality != "good":
-        logger.warning("OCR quality is %s — only %d useful fields extracted", ocr_quality, ocr_field_count)
+        # GLM text is still richer than Tesseract even when unparsed
+        ocr_quality = "poor" if ocr_source == "glm" else "failed"
+    logger.info(
+        "OCR (light, source=%s): %d structured fields (quality=%s)",
+        ocr_source, ocr_field_count, ocr_quality,
+    )
 
-    # Step 3: Build images — full original, preprocessed, + header crop (zoomed)
-    images = [
-        {
-            "base64": _encode_image_base64(original),
-            "media_type": "image/png",
-        },
-        {
-            "base64": _encode_image_base64(preprocessed),
-            "media_type": "image/png",
-        },
-    ]
-    # Add header crop as 3rd image for zoomed-in view of invoice number/date
+    # Step 4: Build image set for Gemini
+    preprocessed_b64 = _encode_image_base64(preprocessed)
+    original_b64 = _encode_image_base64(original)
     has_header_crop = segmentation_result.get("header") is not None
+    images = [
+        {"base64": original_b64, "media_type": "image/png"},
+        {"base64": preprocessed_b64, "media_type": "image/png"},
+    ]
     if has_header_crop:
         images.append({
             "base64": _encode_image_base64(segmentation_result["header"]),
             "media_type": "image/png",
         })
 
-    # Add binary (stripe-removed) image as additional variant for Gemini
-    images.append({
-        "base64": _encode_image_base64(ocr_image),
-        "media_type": "image/png",
-    })
-
-    # Step 4: Describe-then-extract pre-pass
+    # Step 5: Single Gemini smart pass
     gemini_calls = 0
-    uncertain_fields = []
-    uncertain_items = []
+    uncertain_fields: list[str] = []
+    uncertain_items: list[int] = []
     verification_triggered = False
 
-    # --- Pre-pass: Describe the invoice (forces careful observation) ---
-    desc_prompt = build_description_prompt()
-    desc_images = [
-        {"base64": _encode_image_base64(original), "media_type": "image/png"},
-        {"base64": _encode_image_base64(ocr_image), "media_type": "image/png"},
-    ]
-    desc_response = _call_gemini(
-        desc_prompt, desc_images, GEMINI_FLASH,
+    prompt = build_smart_pass_prompt(
+        ocr_data, combined_text,
+        has_header_crop=has_header_crop,
+        has_binary_image=False,
+        ocr_quality=ocr_quality,
+        ocr_source=ocr_source,
+    )
+    response = _call_gemini(
+        prompt, images, GEMINI_FLASH,
         system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
     )
-    description_result = _parse_json_response(desc_response)
-    invoice_description = description_result.get("description", "")
-    gemini_calls += 1
-    logger.info("Description pre-pass complete (%d chars)", len(invoice_description))
-
-    # --- Call 1: Header scan with majority voting (3 calls, take best) ---
-    header_images = []
-    if has_header_crop:
-        header_images.append({
-            "base64": _encode_image_base64(segmentation_result["header"]),
-            "media_type": "image/png",
-        })
-    header_images.append({"base64": _encode_image_base64(original), "media_type": "image/png"})
-    header_images.append({"base64": _encode_image_base64(ocr_image), "media_type": "image/png"})
-
-    header_prompt = build_header_scan_prompt(
-        ocr_data, ocr_text,
-        has_binary_image=True,
-        ocr_quality=ocr_quality,
-    )
-    # Inject description context into the header prompt
-    if invoice_description:
-        header_prompt += f"\n\n## Prior Observation\nA careful reading of the invoice produced this description:\n{invoice_description}"
-
-    # Majority voting: 3 header calls with slight temperature variation
-    header_candidates = []
-    for vote_temp in (0, 0.2, 0.4):
-        h_response = _call_gemini(
-            header_prompt, header_images, GEMINI_FLASH,
-            system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
-            response_schema=HEADER_RESPONSE_SCHEMA,
-            temperature=vote_temp,
-        )
-        h_result = _parse_json_response(h_response)
-        header_candidates.append(h_result)
-        gemini_calls += 1
-
-    # Pick best value per field: majority vote, or highest confidence on tie
-    header_result = _majority_vote_header(header_candidates)
-
-    # Track uncertain header fields
-    header_readable = header_result.pop("readable", {})
-    uncertain_header = [f for f, v in header_readable.items() if v is False]
-    uncertain_fields.extend(uncertain_header)
-
-    # --- Call 2: Items + totals scan ---
-    items_images = []
-    # Send line_items crop if available, upscaled for better detail
-    if segmentation_result.get("line_items") is not None:
-        line_items_crop = segmentation_result["line_items"]
-        # Upscale line items region for better per-row readability
-        from scanner.preprocessing.processor import upscale
-        line_items_zoomed = upscale(line_items_crop, target_min=1500)
-        items_images.append({
-            "base64": _encode_image_base64(line_items_zoomed),
-            "media_type": "image/png",
-        })
-    if segmentation_result.get("totals") is not None:
-        items_images.append({
-            "base64": _encode_image_base64(segmentation_result["totals"]),
-            "media_type": "image/png",
-        })
-    items_images.append({"base64": _encode_image_base64(original), "media_type": "image/png"})
-    items_images.append({"base64": _encode_image_base64(ocr_image), "media_type": "image/png"})
-
-    supplier_name = header_result.get("supplier", "")
-    items_prompt = build_items_scan_prompt(
-        ocr_data, ocr_text,
-        supplier_name=supplier_name,
-        has_binary_image=True,
-        ocr_quality=ocr_quality,
-    )
-    if invoice_description:
-        items_prompt += f"\n\n## Prior Observation\nA careful reading of the invoice produced this description:\n{invoice_description}"
-
-    items_response = _call_gemini(
-        items_prompt, items_images, GEMINI_FLASH,
-        system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
-        response_schema=ITEMS_RESPONSE_SCHEMA,
-    )
-    items_result = _parse_json_response(items_response)
+    result = _parse_json_response(response)
     gemini_calls += 1
 
-    # Track uncertain items/totals fields
-    items_readable = items_result.pop("readable", {})
-    uncertain_totals = [f for f, v in items_readable.items() if v is False]
-    uncertain_fields.extend(uncertain_totals)
-    for i, item in enumerate(items_result.get("items", [])):
+    # Step 5b: Optional verification pass
+    readable = result.pop("readable", {})
+    uncertain_fields = [f for f, v in readable.items() if v is False]
+    for i, item in enumerate(result.get("items", [])):
         if item.pop("readable", True) is False:
             uncertain_items.append(i)
 
-    # --- Merge header + items into unified result ---
-    result = {
-        "supplier": header_result.get("supplier", ""),
-        "date": header_result.get("date", ""),
-        "invoice_number": header_result.get("invoice_number", ""),
-        "items": items_result.get("items", []),
-        "subtotal": items_result.get("subtotal"),
-        "tax": items_result.get("tax"),
-        "total": items_result.get("total"),
-        "confidence": {
-            **header_result.get("confidence", {}),
-            **items_result.get("confidence", {}),
-        },
-        "inference_sources": {
-            **header_result.get("inference_sources", {}),
-            **items_result.get("inference_sources", {}),
-        },
-    }
-
-    # --- Call 3 (conditional): Verification for uncertain fields ---
     if uncertain_fields or uncertain_items:
         verification_triggered = True
         logger.info(
-            "Region scan flagged uncertain fields=%s, items=%s — running verification pass",
+            "Light scan flagged uncertain fields=%s, items=%s — verification pass",
             uncertain_fields, uncertain_items,
         )
         verify_prompt = build_verification_prompt(result, uncertain_fields, uncertain_items)
-        verify_response = _call_gemini(verify_prompt, images, GEMINI_FLASH, system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION)
+        verify_response = _call_gemini(
+            verify_prompt, images, GEMINI_FLASH,
+            system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
+        )
         verified = _parse_json_response(verify_response)
         gemini_calls += 1
 
-        # Merge: take verified values for uncertain fields
-        for field in uncertain_fields:
-            if field in verified and verified[field] is not None:
-                result[field] = verified[field]
-            if field in verified.get("confidence", {}):
-                result.setdefault("confidence", {})[field] = verified["confidence"][field]
-            if field in verified.get("inference_sources", {}):
-                result.setdefault("inference_sources", {})[field] = verified["inference_sources"][field]
+        for f in uncertain_fields:
+            if f in verified and verified[f] is not None:
+                result[f] = verified[f]
+            if f in verified.get("confidence", {}):
+                result.setdefault("confidence", {})[f] = verified["confidence"][f]
+            if f in verified.get("inference_sources", {}):
+                result.setdefault("inference_sources", {})[f] = verified["inference_sources"][f]
 
-        # Merge verified items
         verified_items = verified.get("items", [])
         for idx in uncertain_items:
             if idx < len(verified_items) and idx < len(result.get("items", [])):
                 result["items"][idx] = verified_items[idx]
 
-    # Step 4c: Retry with alternative preprocessing for low-confidence fields
-    retry_fields = []
-    confidence = result.get("confidence", {})
-    for field in ("supplier", "date", "invoice_number", "subtotal", "tax", "total"):
-        val = result.get(field)
-        conf = confidence.get(field, 100)
-        if val is None or val == "" or conf < 60:
-            retry_fields.append(field)
+    # Step 6: OCR cross-validation, math, inference, layout saving
+    result = _cross_validate_invoice_number(result, ocr_parsed, combined_text)
 
-    if retry_fields:
-        logger.info("Low-confidence fields %s — retrying with alternative preprocessing", retry_fields)
-        alt_image = prepare_alternative_variant(original, variants["quality_report"])
-        alt_images = [
-            {"base64": _encode_image_base64(original), "media_type": "image/png"},
-            {"base64": _encode_image_base64(alt_image), "media_type": "image/png"},
-        ]
-
-        # Re-use the full smart pass prompt for the retry
-        retry_prompt = build_smart_pass_prompt(
-            ocr_data, ocr_text,
-            has_header_crop=has_header_crop,
-            has_binary_image=False,
-            ocr_quality=ocr_quality,
-        )
-        retry_response = _call_gemini(retry_prompt, alt_images, GEMINI_FLASH, system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION)
-        retry_result = _parse_json_response(retry_response)
-        retry_result.pop("readable", None)
-        gemini_calls += 1
-
-        # Take retry values only if they have higher confidence
-        retry_conf = retry_result.get("confidence", {})
-        for field in retry_fields:
-            retry_val = retry_result.get(field)
-            retry_c = retry_conf.get(field, 0)
-            current_c = confidence.get(field, 0)
-            if retry_val is not None and retry_val != "" and retry_c > current_c:
-                logger.info(
-                    "Retry improved %s: conf %d -> %d",
-                    field, current_c, retry_c,
-                )
-                result[field] = retry_val
-                result.setdefault("confidence", {})[field] = retry_c
-                result.setdefault("inference_sources", {})[field] = retry_result.get("inference_sources", {}).get(field, "scanned")
-
-    # Step 4d: OCR cross-validation on invoice number
-    result = _cross_validate_invoice_number(result, ocr_parsed, header_ocr_text)
-
-    # Step 5: Mathematical cross-validation
     validation = validate_math(result)
     math_validation_triggered = False
     if not validation["valid"]:
         result = auto_correct(result, validation["errors"])
         math_validation_triggered = True
 
-    # Step 6: Inference for missing/low-confidence fields
     supplier_mem = JsonSupplierMemory()
     sid = None
     try:
@@ -908,9 +814,7 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     except Exception as e:
         logger.warning("Inference step failed (non-fatal): %s", e)
 
-    # Step 6b: Layout saving
     try:
-        segmentation_result = segment_invoice(original)
         if sid and segmentation_result.get("regions_detected"):
             existing_layout = supplier_mem.get_layout(sid)
             if existing_layout is None:
@@ -923,12 +827,12 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     except Exception as e:
         logger.warning("Layout saving failed (non-fatal): %s", e)
 
-    # Step 7: Metadata
     elapsed = time.time() - start_time
     existing_metadata = result.get("scan_metadata", {})
     existing_metadata.update({
         "mode": "light",
-        "pipeline": "ocr-first",
+        "pipeline": "glm-ocr-light",
+        "ocr_source": ocr_source,
         "scan_passes": gemini_calls,
         "scans_performed": gemini_calls,
         "verification_triggered": verification_triggered,
@@ -941,19 +845,19 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
         "models_used": [GEMINI_FLASH] * gemini_calls,
         "ocr_fields_extracted": list(ocr_data.keys()),
         "ocr_quality": ocr_quality,
+        "glm_ocr_chars": len(glm_text),
     })
     result["scan_metadata"] = existing_metadata
 
     if debug:
         result["scan_metadata"]["debug"] = {
             "elapsed_seconds": round(elapsed, 2),
-            "models_used": [GEMINI_FLASH] * gemini_calls,
-            "ocr_text": ocr_text,
+            "ocr_source": ocr_source,
+            "glm_ocr_text": glm_text,
             "ocr_parsed": ocr_data,
             "quality_report": variants["quality_report"],
             "verification_triggered": verification_triggered,
             "uncertain_fields": uncertain_fields,
-            "uncertain_items": uncertain_items,
             "math_validation": {
                 "valid": validation["valid"],
                 "errors": validation["errors"],

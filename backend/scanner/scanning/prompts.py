@@ -445,6 +445,7 @@ def build_smart_pass_prompt(
     has_header_crop: bool = False,
     has_binary_image: bool = False,
     ocr_quality: str = "good",
+    ocr_source: str = "tesseract",
 ) -> str:
     """
     Build the extraction prompt for the OCR-first pipeline (pass 1).
@@ -460,6 +461,7 @@ def build_smart_pass_prompt(
         has_header_crop: If True, a 3rd image is included showing a
             zoomed-in crop of the header region.
         ocr_quality: "good", "poor", or "failed" — indicates OCR reliability.
+        ocr_source: "glm" or "tesseract" — indicates OCR engine quality.
 
     Returns:
         Prompt string for the extraction pass.
@@ -495,6 +497,17 @@ def build_smart_pass_prompt(
             "cannot clearly read.\n"
         )
 
+    glm_note = ""
+    if ocr_source == "glm":
+        glm_note = (
+            "\n\n## OCR Source: Document Layout Parser (High Confidence)\n"
+            "The OCR data and raw text above come from a professional document "
+            "layout parsing engine — NOT basic OCR. HTML tables in the raw text "
+            "preserve exact column structure (QTY, DESCRIPTION, UNIT PRICE, AMOUNT). "
+            "Trust the structured data highly. Focus on validating numbers against "
+            "the image rather than re-extracting from scratch.\n"
+        )
+
     prompt = f"""## Task
 Extract structured data from the provided invoice image(s).
 For each field, you MUST indicate whether you could clearly read it:
@@ -511,7 +524,7 @@ You receive multiple image variants:
 {"4. A high-contrast BINARY image (text isolated from background) — especially useful for reading numbers on striped or watermarked forms. Compare this with the other images when numbers are hard to read." if has_binary_image else ""}
 {ocr_data_section}
 {raw_text_section}
-{ocr_quality_warning}
+{ocr_quality_warning}{glm_note}
 
 ## How to Extract
 
