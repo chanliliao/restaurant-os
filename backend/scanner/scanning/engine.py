@@ -216,17 +216,17 @@ def _optimize_for_glm(image_bytes: bytes) -> tuple[bytes, str]:
     """
     Optimize image bytes for GLM-OCR upload.
 
-    Large JPEGs (3-4MB) time out at the GLM API. This function:
-    - If > 1MB: resize longest edge to ≤2000px, encode as WebP quality 80
-    - If 500KB-1MB: encode as WebP quality 85 (keeps resolution)
-    - If < 500KB: return as-is with original media type
+    GLM-OCR API accepts only JPG/PNG (not WebP). Large JPEGs (3-4MB) time out,
+    so this function resizes and re-encodes as JPEG:
+    - If > 1MB: resize longest edge to ≤2000px, encode as JPEG quality 82
+    - If 500KB-1MB: encode as JPEG quality 85 (keeps resolution)
+    - If < 500KB and already JPEG/PNG: return as-is
 
     Returns:
         (optimized_bytes, media_type)
     """
     size = len(image_bytes)
     if size < 500_000:
-        # Detect media type
         if image_bytes[:3] == b'\xff\xd8\xff':
             return image_bytes, "image/jpeg"
         if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
@@ -245,18 +245,18 @@ def _optimize_for_glm(image_bytes: bytes) -> tuple[bytes, str]:
             new_size = (int(w * scale), int(h * scale))
             img = img.resize(new_size, Image.LANCZOS)
 
-    quality = 80 if size > 1_000_000 else 85
+    quality = 82 if size > 1_000_000 else 85
     buf = io.BytesIO()
-    # Convert to RGB before WebP (handles RGBA/palette modes)
+    # Convert to RGB before JPEG (handles RGBA/palette modes)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    img.save(buf, format="WEBP", quality=quality, method=4)
+    img.save(buf, format="JPEG", quality=quality, optimize=True)
     optimized = buf.getvalue()
     logger.debug(
-        "_optimize_for_glm: %d KB → %d KB (WebP q%d)",
+        "_optimize_for_glm: %d KB -> %d KB (JPEG q%d)",
         size // 1024, len(optimized) // 1024, quality,
     )
-    return optimized, "image/webp"
+    return optimized, "image/jpeg"
 
 
 def _call_glm_ocr(image_base64: str, media_type: str = "image/png") -> str:
