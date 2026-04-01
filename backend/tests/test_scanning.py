@@ -938,3 +938,137 @@ class TestScanEndpoint(TestCase):
         image = self._create_test_image()
         response = self.client.post("/api/scan/", {"image": image, "mode": "normal"}, format="multipart")
         self.assertEqual(response.status_code, 500)
+
+
+# ---------------------------------------------------------------------------
+# OCR parser tests (Phase 20 improvements)
+# ---------------------------------------------------------------------------
+
+import unittest as _unittest
+
+
+class TestExtractHeaderFromHtmlTables(_unittest.TestCase):
+    """Tests for _extract_header_from_html_tables()."""
+
+    def setUp(self):
+        from scanner.scanning.ocr_parser import _extract_header_from_html_tables
+        self.fn = _extract_header_from_html_tables
+
+    def test_extracts_invoice_number_from_th_td(self):
+        html = """<table>
+        <tr><th>INVOICE NO.</th><td>80-3860822</td></tr>
+        <tr><th>INVOICE DATE</th><td>02/26/2025</td></tr>
+        </table>"""
+        result = self.fn(html)
+        self.assertIn("invoice_number", result)
+        self.assertEqual(result["invoice_number"].value, "80-3860822")
+        self.assertEqual(result["invoice_number"].confidence, 85)
+
+    def test_extracts_date_from_invoice_date(self):
+        html = """<table>
+        <tr><th>INVOICE DATE</th><td>03/15/2025</td></tr>
+        </table>"""
+        result = self.fn(html)
+        self.assertIn("date", result)
+        self.assertEqual(result["date"].value, "03/15/2025")
+
+    def test_returns_empty_dict_when_no_table(self):
+        result = self.fn("Plain text, no tables here.")
+        self.assertEqual(result, {})
+
+    def test_returns_empty_dict_when_no_matching_keys(self):
+        html = """<table>
+        <tr><th>DESCRIPTION</th><th>QTY</th><th>AMOUNT</th></tr>
+        <tr><td>Widget</td><td>5</td><td>25.00</td></tr>
+        </table>"""
+        result = self.fn(html)
+        self.assertEqual(result, {})
+
+    def test_handles_inv_no_keyword(self):
+        html = """<table>
+        <tr><th>INV NO</th><td>INV-1234</td></tr>
+        </table>"""
+        result = self.fn(html)
+        self.assertIn("invoice_number", result)
+        self.assertEqual(result["invoice_number"].value, "INV-1234")
+
+
+class TestExtractSupplierSkipList(_unittest.TestCase):
+    """Tests for _extract_supplier() skip-list and heuristics (Phase 20)."""
+
+    def setUp(self):
+        from scanner.scanning.ocr_parser import _extract_supplier
+        self.fn = _extract_supplier
+
+    def test_skips_ship_to_line(self):
+        lines = [
+            "SHIP TO: Fresh Foods Inc.",
+            "JFC International Inc.",
+        ]
+        result = self.fn(lines)
+        self.assertEqual(result.value, "JFC International Inc.")
+
+    def test_skips_bill_to_line(self):
+        lines = [
+            "BILL TO: Acme Distribution LLC",
+            "Real Supplier Co.",
+        ]
+        result = self.fn(lines)
+        self.assertEqual(result.value, "Real Supplier Co.")
+
+    def test_skips_license_line(self):
+        lines = [
+            "LICENSE: PLENARY WHOLESALE LIC.",
+            "NY Mutual Trading Inc.",
+        ]
+        result = self.fn(lines)
+        self.assertIsNotNone(result.value)
+        self.assertNotIn("PLENARY", result.value)
+
+    def test_first_5_lines_get_higher_confidence(self):
+        lines = ["Some Company Inc."]
+        result = self.fn(lines)
+        self.assertGreaterEqual(result.confidence, 85)
+
+    def test_strips_markdown_header_prefix(self):
+        lines = ["## JFC International Inc."]
+        result = self.fn(lines)
+        self.assertEqual(result.value, "JFC International Inc.")
+
+    def test_returns_missing_when_all_lines_skipped(self):
+        lines = [
+            "SHIP TO: Acme Inc.",
+            "BILL TO: Another Corp.",
+        ]
+        result = self.fn(lines)
+        # Both are skipped — should return missing (None)
+        self.assertIsNone(result.value)
+        self.assertEqual(result.confidence, 0)
+
+
+class TestColumnMappingLessKeyword(_unittest.TestCase):
+    """Tests for _COL_MAP 'less' keyword and each_price priority (Phase 20)."""
+
+    def setUp(self):
+        from scanner.scanning.ocr_parser import _map_columns
+        self.fn = _map_columns
+
+    def test_less_column_maps_to_unit(self):
+        header = ["DESCRIPTION", "QTY", "LESS", "UNIT PRICE", "AMOUNT"]
+        mapping = self.fn(header)
+        self.assertIn("unit", mapping)
+        self.assertEqual(mapping["unit"], 2)
+
+    def test_each_price_wins_over_unit_price(self):
+        # When both EACH PRICE and UNIT PRICE exist, EACH PRICE should win
+        header = ["DESCRIPTION", "QTY", "UNIT PRICE", "EACH PRICE", "AMOUNT"]
+        mapping = self.fn(header)
+        self.assertIn("unit_price", mapping)
+        # Should map to col 3 (EACH PRICE), not col 2 (UNIT PRICE)
+        self.assertEqual(mapping["unit_price"], 3)
+
+    def test_unit_price_alone_still_works(self):
+        header = ["DESCRIPTION", "QTY", "UNIT PRICE", "AMOUNT"]
+        mapping = self.fn(header)
+        self.assertIn("unit_price", mapping)
+        self.assertEqual(mapping["unit_price"], 2)

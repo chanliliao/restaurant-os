@@ -275,6 +275,63 @@ def _apply_saved_layout(
 # Orchestrator
 # ---------------------------------------------------------------------------
 
+def segment_invoice_zones(image) -> dict:
+    """
+    Return 4 fine-grained zones for targeted OCR fallback.
+
+    Splits the image into:
+        - header_left:  top 30%, left 55%  — supplier name / address
+        - header_right: top 30%, right 50% — invoice number, date
+        - body:         middle 50%          — line items
+        - footer_right: bottom 20%, right 50% — totals
+
+    Uses the existing detect_regions() result for the horizontal split, then
+    subdivides the header and footer crops left/right.
+
+    Args:
+        image: PIL Image or numpy ndarray.
+
+    Returns:
+        Dict mapping zone name to cropped PIL Image (or None if crop is empty).
+    """
+    pil_img = _to_pil(image)
+    width, height = pil_img.size
+
+    # Determine horizontal boundaries from morphological detection
+    regions = detect_regions(image)
+    bboxes = regions.get("bounding_boxes", {})
+
+    if bboxes:
+        # Use detected header / body / totals y-ranges
+        hdr_bbox = bboxes.get("header") or (0, 0, width, int(height * 0.25))
+        tot_bbox = bboxes.get("totals") or (0, int(height * 0.75), width, int(height * 0.25))
+    else:
+        hdr_bbox = (0, 0, width, int(height * 0.30))
+        tot_bbox = (0, int(height * 0.80), width, int(height * 0.20))
+
+    _, hdr_y, _, hdr_h = hdr_bbox
+    _, tot_y, _, tot_h = tot_bbox
+
+    hdr_bottom = hdr_y + hdr_h
+    tot_bottom = tot_y + tot_h
+
+    def _safe_crop(left, upper, right, lower) -> Image.Image | None:
+        l, u, r, lo = int(left), int(upper), int(right), int(lower)
+        if r <= l or lo <= u:
+            return None
+        return pil_img.crop((l, u, r, lo))
+
+    mid_left = int(width * 0.55)
+    mid_right = int(width * 0.50)
+
+    return {
+        "header_left":  _safe_crop(0,         hdr_y,    mid_left,       hdr_bottom),
+        "header_right": _safe_crop(mid_right,  hdr_y,    width,          hdr_bottom),
+        "body":         _safe_crop(0,          hdr_bottom, width,        tot_y),
+        "footer_right": _safe_crop(mid_right,  tot_y,    width,          tot_bottom),
+    }
+
+
 def segment_invoice(image, *, saved_layout: dict | None = None) -> dict:
     """
     Full ROI segmentation orchestrator.

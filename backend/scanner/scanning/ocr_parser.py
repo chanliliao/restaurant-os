@@ -93,8 +93,10 @@ class OCRParseResult:
 
 # Invoice number patterns
 _INVOICE_NUM_PATTERNS = [
-    # "Invoice #: X", "Invoice No: X", "Invoice Number: X"
+    # "Invoice #: X", "Invoice No: X", "Invoice Number: X" (same line)
     re.compile(r"invoice\s*(?:#|no\.?|number)\s*[:.]?\s*([A-Z0-9][\w\-/]+)", re.IGNORECASE),
+    # "INVOICE NO." followed by number on next line or after <br>/colon/period
+    re.compile(r"INVOICE\s*NO\.?\s*(?:<br\s*/?>|\n|[:.]\s*)?\s*(\d[\d\-/]+)", re.IGNORECASE),
     # "INV-12345", "INV12345"
     re.compile(r"\b(INV[\-]?\d{3,})\b", re.IGNORECASE),
     # Standalone pattern near "INVOICE" keyword — alphanumeric code
@@ -143,35 +145,70 @@ def _parse_money(s: str) -> float | None:
         return None
 
 
+_SUPPLIER_SKIP_RE = re.compile(
+    r"\b(ship\s+to|bill\s+to|sold\s+to|customer|remit\s+to|license|plenary)\b",
+    re.IGNORECASE,
+)
+
+
 def _extract_supplier(lines: list[str]) -> ParsedField:
     """
-    Extract supplier name from the first ~10 lines of OCR text.
+    Extract supplier name from the first ~15 lines of OCR text.
 
     Heuristic: Look for a line that looks like a company name
     (contains Inc, LLC, Corp, Co., Ltd, or is a prominent multi-word line
-    near the top that isn't an address).
+    near the top that isn't an address or shipping/billing section).
+
+    Prefers matches in the first 5 lines (header zone).
+    Strips leading GLM markdown headers (## ).
+    Skips lines containing SHIP TO, BILL TO, SOLD TO, CUSTOMER, REMIT TO, LICENSE, PLENARY.
     """
     company_suffixes = re.compile(
         r"\b(Inc\.?|LLC|Corp\.?|Co\.?|Ltd\.?|Company|Imports?|Import,?\s+Inc|"
-        r"Distribution|Distributors?|Supply|Supplies|Foods?|Wholesale)\b",
+        r"Distribution|Distributors?|Supply|Supplies|Foods?|Wholesale|International)\b",
         re.IGNORECASE,
     )
 
-    # Search first 15 lines for company-like names
-    for line in lines[:15]:
+    best: ParsedField | None = None
+
+    for idx, line in enumerate(lines[:15]):
         stripped = line.strip()
         if not stripped or len(stripped) < 3:
             continue
-        if company_suffixes.search(stripped):
-            # Clean up the line
-            name = stripped.strip()
-            # Remove leading/trailing punctuation noise from OCR
-            name = re.sub(r"^[^A-Za-z]+", "", name)
-            name = re.sub(r"[^A-Za-z.)]+$", "", name)
-            if len(name) >= 3:
-                return ParsedField(value=name, confidence=75, source="ocr")
 
-    return ParsedField(value=None, confidence=0, source="missing")
+        # Skip lines that belong to shipping/billing/license sections
+        if _SUPPLIER_SKIP_RE.search(stripped):
+            continue
+
+        # Strip GLM markdown header prefix (## )
+        conf_boost = 0
+        if stripped.startswith("## "):
+            stripped = stripped[3:].strip()
+            conf_boost = 10
+
+        if not company_suffixes.search(stripped):
+            continue
+
+        # Clean up the line
+        name = stripped
+        name = re.sub(r"^[^A-Za-z]+", "", name)
+        name = re.sub(r"[^A-Za-z.)]+$", "", name)
+        if len(name) < 3:
+            continue
+
+        # Lines in first 5 get higher confidence
+        conf = 85 if idx < 5 else 75
+        conf += conf_boost
+        field = ParsedField(value=name, confidence=conf, source="ocr")
+
+        # Keep the highest-confidence match; first-5-lines wins
+        if best is None or conf > best.confidence:
+            best = field
+            if idx < 5:
+                # First strong match in the header zone — stop looking
+                break
+
+    return best if best is not None else ParsedField(value=None, confidence=0, source="missing")
 
 
 def _extract_invoice_number(text: str) -> ParsedField:
@@ -369,15 +406,23 @@ _COL_MAP: list[tuple[list[str], str]] = [
     (["qty each", "qty. each", "quantity each", "each qty"], "quantity_each"),
     (["qty case", "qty. case", "quantity case", "case qty", "cs"], "quantity_case"),
     (["qty", "quantity", "pcs", "count"], "quantity"),
-    (["unit price", "unit pr", "each price", "price ea", "unit pr(ea)"], "unit_price"),
+    # "each price" listed first so it wins when both columns exist (JFC invoices)
+    (["each price", "price ea"], "each_price"),
+    (["unit price", "unit pr", "unit pr(ea)"], "unit_price"),
     (["amount", "total", "ext", "extended", "total amt", "line total"], "amount"),
-    (["uom", "unit", "um"], "unit"),
+    # "less" is NY Mutual's unit column (CS/EA/TUB/CAN)
+    (["uom", "unit", "um", "less"], "unit"),
     (["pack", "package"], "pack"),
 ]
 
 
 def _map_columns(header_row: list[str]) -> dict[str, int]:
-    """Map column indices from a header row. Returns field_name → col_index."""
+    """Map column indices from a header row. Returns field_name → col_index.
+
+    Special rule: when both "each_price" and "unit_price" columns are present,
+    "each_price" wins for the unit_price field (JFC invoices use EACH PRICE for
+    the per-item price and UNIT PRICE for the per-case price).
+    """
     mapping: dict[str, int] = {}
     for col_idx, cell in enumerate(header_row):
         norm = _normalize_header(cell)
@@ -389,6 +434,10 @@ def _map_columns(header_row: list[str]) -> dict[str, int]:
             if any(kw in norm for kw in keywords):
                 mapping[field_name] = col_idx
                 break
+
+    # Merge each_price → unit_price if both found (each_price takes precedence)
+    if "each_price" in mapping:
+        mapping["unit_price"] = mapping.pop("each_price")
     return mapping
 
 
@@ -396,6 +445,79 @@ def _cell(row: list[str], idx: int | None) -> str:
     if idx is None or idx >= len(row):
         return ""
     return row[idx].strip()
+
+
+def _extract_header_from_html_tables(text: str) -> dict[str, ParsedField]:
+    """
+    Extract header fields (invoice_number, date) from HTML table structure.
+
+    GLM-OCR returns header info in tables like:
+        <th>INVOICE NO.</th><td>80-3860822</td>
+        <th>INVOICE DATE</th><td>02/26/2025</td>
+
+    Returns dict with any of: invoice_number, date — as ParsedField objects
+    with confidence=85. Only returns keys where a value was found.
+    """
+    result: dict[str, ParsedField] = {}
+
+    if "<table" not in text.lower():
+        return result
+
+    parser = _TableParser()
+    try:
+        parser.feed(text)
+    except Exception:
+        return result
+
+    # Keywords mapping normalized cell text → field name
+    _HEADER_KEY_MAP: list[tuple[str, str]] = [
+        ("invoice no", "invoice_number"),
+        ("invoice number", "invoice_number"),
+        ("inv no", "invoice_number"),
+        ("invoice date", "date"),
+        ("inv date", "date"),
+        ("ship date", "date"),   # fallback if no invoice date
+        ("order date", "date"),
+    ]
+
+    for table_rows in parser.tables:
+        for row in table_rows:
+            for col_idx, cell in enumerate(row):
+                norm = _normalize_header(cell)
+                for keyword, field_name in _HEADER_KEY_MAP:
+                    if field_name in result:
+                        continue
+                    if keyword not in norm:
+                        continue
+                    # Value is either in the same cell after a <br> / newline,
+                    # or in the next cell (col_idx + 1).
+                    # Since _TableParser strips tags, try splitting the cell text.
+                    # _TableParser keeps text but strips tags, so "INVOICE NO.\n80-3860822"
+                    # or "INVOICE NO. 80-3860822" would both appear as the full cell text.
+                    # First try: remainder of cell after the label
+                    cell_remainder = re.sub(
+                        re.escape(keyword), "", norm, flags=re.IGNORECASE
+                    ).strip(" :.\n\r\t")
+                    if cell_remainder and re.search(r"\d", cell_remainder):
+                        result[field_name] = ParsedField(
+                            value=cell_remainder.strip(),
+                            confidence=85,
+                            source="ocr",
+                        )
+                        break
+
+                    # Second try: value in the next cell
+                    if col_idx + 1 < len(row):
+                        next_val = row[col_idx + 1].strip()
+                        if next_val and re.search(r"\d", next_val):
+                            result[field_name] = ParsedField(
+                                value=next_val,
+                                confidence=85,
+                                source="ocr",
+                            )
+                            break
+
+    return result
 
 
 def _extract_items_from_html_tables(text: str) -> list[ParsedItem]:
@@ -572,6 +694,18 @@ def parse_ocr_text(ocr_text: str) -> OCRParseResult:
     invoice_number = _extract_invoice_number(plain_text)
     date = _extract_date(plain_text)
     subtotal, tax, total = _extract_totals(plain_text)
+
+    # For invoice_number / date: HTML table header rows are most reliable
+    if has_html:
+        html_header = _extract_header_from_html_tables(ocr_text)
+        if "invoice_number" in html_header and (
+            invoice_number.value is None or invoice_number.confidence < 85
+        ):
+            invoice_number = html_header["invoice_number"]
+        if "date" in html_header and (
+            date.value is None or date.confidence < 85
+        ):
+            date = html_header["date"]
 
     # For totals, also try HTML table summary rows (often more reliable)
     if has_html:

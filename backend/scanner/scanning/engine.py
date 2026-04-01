@@ -21,7 +21,7 @@ from PIL import Image
 
 from scanner.preprocessing import prepare_variants
 from scanner.preprocessing.processor import remove_stripes, prepare_alternative_variant
-from scanner.preprocessing.segmentation import segment_invoice
+from scanner.preprocessing.segmentation import segment_invoice, segment_invoice_zones
 from scanner.preprocessing.layout import build_layout_descriptor
 from scanner.scanning.ocr import ocr_prepass, extract_text_enhanced
 from scanner.scanning.prompts import (
@@ -37,7 +37,11 @@ from scanner.scanning.prompts import (
     HEADER_RESPONSE_SCHEMA,
     ITEMS_RESPONSE_SCHEMA,
 )
-from scanner.scanning.ocr_parser import parse_ocr_text
+from scanner.scanning.ocr_parser import (
+    parse_ocr_text,
+    _extract_supplier,
+    _extract_totals,
+)
 from scanner.memory import JsonGeneralMemory, JsonSupplierMemory, normalize_supplier_id
 from scanner.memory.inference import run_inference
 from scanner.scanning.comparator import compare_scans, merge_results
@@ -710,6 +714,43 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
         combined_text += "\n\n--- HEADER REGION OCR ---\n" + header_ocr_text
     ocr_parsed = parse_ocr_text(combined_text)
     ocr_data = ocr_parsed.to_dict()
+
+    # Step 3b: Zone-targeted Tesseract fallback for missing fields
+    # Runs cheap Tesseract on small image crops — no API calls.
+    _supplier_missing = (
+        not ocr_data.get("supplier")
+        or ocr_data["supplier"].get("confidence", 0) < 50
+    )
+    _total_missing = not ocr_data.get("total")
+    if _supplier_missing or _total_missing:
+        try:
+            zones = segment_invoice_zones(original)
+            if _supplier_missing and zones.get("header_left") is not None:
+                supplier_text = extract_text_enhanced(zones["header_left"])
+                supplier_field = _extract_supplier(supplier_text.split("\n"))
+                if supplier_field.confidence > 0:
+                    ocr_data["supplier"] = {
+                        "value": supplier_field.value,
+                        "confidence": supplier_field.confidence,
+                    }
+                    logger.info(
+                        "Zone fallback: supplier='%s' (conf=%d)",
+                        supplier_field.value, supplier_field.confidence,
+                    )
+            if _total_missing and zones.get("footer_right") is not None:
+                totals_text = extract_text_enhanced(zones["footer_right"])
+                _, _, total_field = _extract_totals(totals_text)
+                if total_field.confidence > 0:
+                    ocr_data["total"] = {
+                        "value": total_field.value,
+                        "confidence": total_field.confidence,
+                    }
+                    logger.info(
+                        "Zone fallback: total=%s (conf=%d)",
+                        total_field.value, total_field.confidence,
+                    )
+        except Exception as zone_err:
+            logger.debug("Zone-targeted fallback failed (non-fatal): %s", zone_err)
 
     ocr_useful_fields = [k for k in ocr_data if k != "items"]
     ocr_has_items = bool(ocr_data.get("items"))
