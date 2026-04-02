@@ -736,3 +736,221 @@ def parse_ocr_text(ocr_text: str) -> OCRParseResult:
         items=items,
         raw_text=ocr_text,
     )
+
+
+# ---------------------------------------------------------------------------
+# Supplier identification & profile-driven parsing (Phase 21)
+# ---------------------------------------------------------------------------
+
+def identify_supplier(ocr_text: str, supplier_index: dict[str, str]) -> str | None:
+    """Match OCR text against known supplier names.
+
+    Searches the first 500 characters of OCR text for known supplier names.
+    Uses case-insensitive substring matching.
+
+    Args:
+        ocr_text: Raw OCR text from GLM-OCR.
+        supplier_index: Dict mapping supplier_id -> display name.
+
+    Returns:
+        supplier_id if a known supplier name is found, None otherwise.
+    """
+    if not ocr_text or not supplier_index:
+        return None
+
+    search_text = ocr_text[:500].lower()
+
+    for supplier_id, name in supplier_index.items():
+        if not name:
+            continue
+        if name.lower() in search_text:
+            return supplier_id
+
+    return None
+
+
+def parse_with_profile(ocr_text: str, extraction_profile: dict, supplier_name: str = "") -> OCRParseResult:
+    """Parse OCR text using a supplier-specific extraction profile.
+
+    Uses exact field labels and column maps from the profile instead of
+    generic regex. Falls back to generic parsing for any field not covered
+    by the profile.
+
+    Args:
+        ocr_text: Raw OCR text from GLM-OCR (may contain HTML tables).
+        extraction_profile: Dict with keys like invoice_number_label,
+            date_label, column_map, has_subtotal_row, etc.
+        supplier_name: Known supplier name to return directly.
+
+    Returns:
+        OCRParseResult with supplier-specific extraction applied.
+    """
+    result = parse_ocr_text(ocr_text)
+
+    # Supplier name: return directly from memory (confidence 95)
+    if supplier_name:
+        result.supplier = ParsedField(value=supplier_name, confidence=95, source="memory")
+
+    # Invoice number: search for exact label
+    inv_label = extraction_profile.get("invoice_number_label")
+    if inv_label:
+        inv_value = _extract_labeled_field(ocr_text, inv_label)
+        if inv_value:
+            result.invoice_number = ParsedField(value=inv_value, confidence=90, source="profile")
+
+    # Date: search for exact label
+    date_label = extraction_profile.get("date_label")
+    if date_label:
+        date_value = _extract_labeled_field(ocr_text, date_label)
+        if date_value:
+            result.date = ParsedField(value=date_value, confidence=90, source="profile")
+
+    # Items: re-parse using column map if provided
+    column_map = extraction_profile.get("column_map")
+    if column_map:
+        profile_items = _parse_items_with_column_map(ocr_text, column_map)
+        if profile_items:
+            result.items = profile_items
+
+    return result
+
+
+def _extract_labeled_field(text: str, label: str) -> str | None:
+    """Find a field value by its exact label in OCR text.
+
+    Looks for "LABEL: value", "LABEL value" (on same line), or
+    "LABEL\\nvalue" (value on next line after label).
+
+    Returns the stripped value string, or None if not found.
+    """
+    # Escape label for regex
+    escaped = re.escape(label)
+
+    # Same-line patterns: "ORDER #: 1234567-001" or "ORDER # 1234567-001"
+    same_line = re.search(
+        rf"{escaped}\s*[:.]?\s*([A-Z0-9][\w\-/]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if same_line:
+        return same_line.group(1).strip()
+
+    # Next-line pattern: label on one line, value on next
+    next_line = re.search(
+        rf"{escaped}\s*\n\s*([A-Z0-9][\w\-/]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if next_line:
+        return next_line.group(1).strip()
+
+    return None
+
+
+def _parse_items_with_column_map(text: str, column_map: dict[str, str]) -> list[ParsedItem]:
+    """Parse line items from HTML table using supplier-specific column mapping.
+
+    Maps column headers to standard field names using column_map.
+    column_map example: {"CS": "quantity", "LESS": "unit", "AMOUNT": "total"}
+
+    Returns list of ParsedItem, or empty list if no table found.
+    """
+    # Use the existing HTML table parser
+    table_rows = _extract_html_table_rows(text)
+    if not table_rows:
+        return []
+
+    # Find header row — the row whose cells match our column_map keys
+    header_indices: dict[str, int] = {}  # field_name -> column_index
+    header_row_idx = -1
+
+    for row_idx, row in enumerate(table_rows):
+        matched = 0
+        temp_indices: dict[str, int] = {}
+        for col_idx, cell in enumerate(row):
+            cell_stripped = cell.strip()
+            for col_header, field_name in column_map.items():
+                if col_header.lower() in cell_stripped.lower():
+                    temp_indices[field_name] = col_idx
+                    matched += 1
+        if matched >= 2:  # Found the header row
+            header_indices = temp_indices
+            header_row_idx = row_idx
+            break
+
+    if not header_indices or header_row_idx < 0:
+        return []
+
+    items = []
+    for row in table_rows[header_row_idx + 1:]:
+        if not row or all(not c.strip() for c in row):
+            continue
+
+        # Skip rows that look like totals
+        first_cell = row[0].strip().lower() if row else ""
+        if any(kw in first_cell for kw in ("total", "subtotal", "tax", "amount due")):
+            break
+
+        item = ParsedItem()
+
+        # Name: look for "name" in column_map, or use the longest non-numeric cell
+        name_idx = header_indices.get("name")
+        if name_idx is not None and name_idx < len(row):
+            item.name = row[name_idx].strip()
+        else:
+            # Fallback: use the widest text cell
+            best_name = ""
+            for cell in row:
+                cell = cell.strip()
+                if len(cell) > len(best_name) and not re.match(r'^[\d.,]+$', cell):
+                    best_name = cell
+            item.name = best_name
+
+        if not item.name:
+            continue
+
+        # Numeric fields from column map
+        qty_idx = header_indices.get("quantity")
+        if qty_idx is not None and qty_idx < len(row):
+            val = _parse_money(row[qty_idx])
+            if val is not None:
+                item.quantity = val
+
+        unit_idx = header_indices.get("unit")
+        if unit_idx is not None and unit_idx < len(row):
+            item.unit = row[unit_idx].strip()
+
+        price_idx = header_indices.get("unit_price")
+        if price_idx is not None and price_idx < len(row):
+            item.unit_price = _parse_money(row[price_idx])
+
+        total_idx = header_indices.get("total")
+        if total_idx is not None and total_idx < len(row):
+            item.total = _parse_money(row[total_idx])
+
+        item.confidence = 80 if item.quantity is not None and item.unit_price is not None else 60
+        items.append(item)
+
+    return items
+
+
+def _extract_html_table_rows(text: str) -> list[list[str]]:
+    """Extract all rows from the first HTML table in the text.
+
+    Returns a list of rows, each row being a list of cell strings.
+    Returns empty list if no table is found.
+    """
+    if "<table" not in text.lower():
+        return []
+
+    parser = _TableParser()
+    try:
+        parser.feed(text)
+    except Exception:
+        return []
+
+    if not parser.tables:
+        return []
+
+    # Return rows from the first table only
+    return parser.tables[0]

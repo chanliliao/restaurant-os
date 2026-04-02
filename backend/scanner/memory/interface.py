@@ -32,6 +32,20 @@ class SupplierMemory(ABC):
         """Write/update the supplier's invoice layout."""
         ...
 
+    @abstractmethod
+    def get_extraction_profile(self, supplier_id: str) -> dict | None:
+        """Load a supplier's extraction profile, or None if not set.
+
+        The extraction profile contains supplier-specific parsing hints:
+        invoice_number_label, date_label, column_map, etc.
+        """
+        ...
+
+    @abstractmethod
+    def update_extraction_profile(self, supplier_id: str, profile: dict) -> None:
+        """Write/update the supplier's extraction profile."""
+        ...
+
 
 class GeneralMemory(ABC):
     """Interface for general industry memory storage."""

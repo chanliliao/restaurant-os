@@ -338,3 +338,26 @@ class TestCorruptFiles:
         profile = supplier_mem.get_profile("bad")
         assert profile["scan_count"] == 1
         assert profile["latest_values"]["supplier"] == "Bad Corp"
+
+
+# ---------------------------------------------------------------------------
+# Phase 21: Extraction profile (get/update)
+# ---------------------------------------------------------------------------
+
+class TestExtractionProfile:
+    def test_extraction_profile_roundtrip(self, tmp_path):
+        from scanner.memory.json_store import JsonSupplierMemory
+        mem = JsonSupplierMemory(data_dir=tmp_path)
+        profile = {
+            "invoice_number_label": "ORDER #",
+            "date_label": "SHIP DATE",
+            "column_map": {"CS": "quantity", "AMOUNT": "total"},
+        }
+        mem.update_extraction_profile("test-supplier", profile)
+        loaded = mem.get_extraction_profile("test-supplier")
+        assert loaded == profile
+
+    def test_extraction_profile_missing_returns_none(self, tmp_path):
+        from scanner.memory.json_store import JsonSupplierMemory
+        mem = JsonSupplierMemory(data_dir=tmp_path)
+        assert mem.get_extraction_profile("nonexistent-supplier") is None

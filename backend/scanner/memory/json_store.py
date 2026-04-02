@@ -114,6 +114,9 @@ class JsonSupplierMemory(SupplierMemory):
     def _layout_path(self, supplier_id: str) -> Path:
         return self._supplier_dir(supplier_id) / "layout.json"
 
+    def _extraction_profile_path(self, supplier_id: str) -> Path:
+        return self._supplier_dir(supplier_id) / "extraction_profile.json"
+
     def _index_path(self) -> Path:
         return self._suppliers_dir / "index.json"
 
@@ -246,6 +249,19 @@ class JsonSupplierMemory(SupplierMemory):
         _validate_supplier_id(supplier_id)
         with _file_lock:
             _write_json(self._layout_path(supplier_id), layout)
+
+    def get_extraction_profile(self, supplier_id: str) -> dict | None:
+        """Load the supplier's extraction profile, or None if not set."""
+        _validate_supplier_id(supplier_id)
+        with _file_lock:
+            profile = _read_json(self._extraction_profile_path(supplier_id))
+        return profile if profile else None
+
+    def update_extraction_profile(self, supplier_id: str, profile: dict) -> None:
+        """Write/update the supplier's extraction profile."""
+        _validate_supplier_id(supplier_id)
+        with _file_lock:
+            _write_json(self._extraction_profile_path(supplier_id), profile)
 
 
 class JsonGeneralMemory(GeneralMemory):

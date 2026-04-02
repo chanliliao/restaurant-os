@@ -729,24 +729,24 @@ class TestScanInvoiceThreePass:
         assert result["supplier"] == "Fresh Foods Inc."
         assert result["total"] == 23.65
 
-    @patch("scanner.scanning.engine._call_gemini")
+    @patch("scanner.scanning.engine._call_glm_vision")
     @patch("scanner.scanning.engine._call_glm_ocr")
     @patch("scanner.scanning.engine.segment_invoice")
     @patch("scanner.scanning.engine.extract_text_enhanced")
     @patch("scanner.scanning.engine.prepare_variants")
-    def test_light_mode_uses_gemini_not_claude(
-        self, mock_prep, mock_extract, mock_segment, mock_glm_ocr, mock_gemini
+    def test_light_mode_uses_glm_vision_not_claude(
+        self, mock_prep, mock_extract, mock_segment, mock_glm_ocr, mock_glm_vision
     ):
-        """Light mode uses GLM-OCR + Gemini (not Claude)."""
+        """Light mode uses GLM-OCR + GLM vision (not Claude)."""
         mock_prep.return_value = _mock_prep_return()
         mock_extract.return_value = ""
         mock_segment.return_value = {"header": None, "regions_detected": False}
         mock_glm_ocr.return_value = "Fresh Foods Inc Invoice INV-1234 Total: $23.65"
-        mock_gemini.return_value = json.dumps(MOCK_CLAUDE_JSON)
+        mock_glm_vision.return_value = json.dumps(MOCK_CLAUDE_JSON)
 
         result = scan_invoice(_make_test_image_bytes(), mode="light")
 
-        assert mock_gemini.called
+        assert mock_glm_vision.called
         assert result["supplier"] == "Fresh Foods Inc."
         meta = result["scan_metadata"]
         assert meta["pipeline"] == "glm-ocr-light"
@@ -1072,3 +1072,36 @@ class TestColumnMappingLessKeyword(_unittest.TestCase):
         mapping = self.fn(header)
         self.assertIn("unit_price", mapping)
         self.assertEqual(mapping["unit_price"], 2)
+
+
+# ---------------------------------------------------------------------------
+# Phase 21: identify_supplier and parse_with_profile
+# ---------------------------------------------------------------------------
+
+class TestIdentifySupplier(_unittest.TestCase):
+    def test_identify_supplier_known(self):
+        from scanner.scanning.ocr_parser import identify_supplier
+        text = "## FRESH FOODS INC\n123 Market St\nINVOICE NO: 12345"
+        index = {"fresh-foods-inc": "FRESH FOODS INC", "other-co": "Other Co"}
+        assert identify_supplier(text, index) == "fresh-foods-inc"
+
+    def test_identify_supplier_unknown(self):
+        from scanner.scanning.ocr_parser import identify_supplier
+        text = "## NEW VENDOR LLC\nINVOICE NO: 99999"
+        index = {"fresh-foods-inc": "FRESH FOODS INC"}
+        assert identify_supplier(text, index) is None
+
+    def test_identify_supplier_empty(self):
+        from scanner.scanning.ocr_parser import identify_supplier
+        assert identify_supplier("", {}) is None
+
+
+class TestParseWithProfile(_unittest.TestCase):
+    def test_parse_with_profile_supplier_name(self):
+        from scanner.scanning.ocr_parser import parse_with_profile
+        text = "ORDER # 1234567-001\nSHIP DATE 03/15/2025"
+        profile = {"invoice_number_label": "ORDER #", "date_label": "SHIP DATE"}
+        result = parse_with_profile(text, profile, supplier_name="NY Mutual Trading Co.")
+        assert result.supplier.value == "NY Mutual Trading Co."
+        assert result.supplier.confidence == 95
+        assert result.supplier.source == "memory"

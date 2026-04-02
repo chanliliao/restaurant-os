@@ -16,7 +16,6 @@ import os
 
 import anthropic
 import requests
-from google import genai
 from PIL import Image
 
 from scanner.preprocessing import prepare_variants
@@ -33,12 +32,16 @@ from scanner.scanning.prompts import (
     build_header_scan_prompt,
     build_items_scan_prompt,
     build_description_prompt,
+    build_supplier_context_section,
+    build_format_description_request,
     ACCOUNTANT_SYSTEM_INSTRUCTION,
     HEADER_RESPONSE_SCHEMA,
     ITEMS_RESPONSE_SCHEMA,
 )
 from scanner.scanning.ocr_parser import (
     parse_ocr_text,
+    identify_supplier,
+    parse_with_profile,
     _extract_supplier,
     _extract_totals,
 )
@@ -46,15 +49,15 @@ from scanner.memory import JsonGeneralMemory, JsonSupplierMemory, normalize_supp
 from scanner.memory.inference import run_inference
 from scanner.scanning.comparator import compare_scans, merge_results
 from scanner.scanning.validator import validate_math, auto_correct
-from scanner.tracking.api_usage import record_gemini_call
 
 logger = logging.getLogger(__name__)
 
 SONNET = "claude-sonnet-4-20250514"
 OPUS = "claude-opus-4-0-20250514"
-GEMINI_FLASH = "gemini-2.5-flash"
 GLM_OCR_MODEL = "glm-ocr"
 GLM_OCR_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
+GLM_VISION_MODEL = "glm-4.6v-flash"
+GLM_VISION_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
 
 def _match_supplier_from_ocr(ocr_text: str, supplier_mem: JsonSupplierMemory) -> str | None:
@@ -76,11 +79,11 @@ def _match_supplier_from_ocr(ocr_text: str, supplier_mem: JsonSupplierMemory) ->
     return None
 
 
-def _get_model_for_scan(mode: str, scan_number: int) -> str:
-    """
-    Return the correct model for a given mode and scan number.
 
-    Uses Gemini Flash for all modes since Claude API credits are unavailable.
+def _get_model_for_scan(mode: str, scan_number: int) -> str:
+    """Return the correct model for a given mode and scan number.
+
+    Uses GLM vision for all modes.
 
     Args:
         mode: "light", "normal", or "heavy".
@@ -89,8 +92,7 @@ def _get_model_for_scan(mode: str, scan_number: int) -> str:
     Returns:
         Model identifier string.
     """
-    # Use Gemini for all scans (Claude API credits unavailable)
-    return GEMINI_FLASH
+    return GLM_VISION_MODEL
 
 
 def _encode_image_base64(pil_image: Image.Image, fmt: str = "PNG") -> str:
@@ -146,62 +148,56 @@ def _call_claude(prompt: str, images: list[dict], model: str) -> str:
     return response.content[0].text
 
 
-def _call_gemini(
+def _call_glm_vision(
     prompt: str,
     images: list[dict],
-    model: str = GEMINI_FLASH,
     system_instruction: str | None = None,
-    thinking_budget: int | None = 2048,
-    response_schema: dict | None = None,
     temperature: float = 0,
-    use_grounding: bool = False,
 ) -> str:
     """
-    Call the Google Gemini API with a prompt and base64-encoded images.
+    Call GLM-4.6V-Flash with images + prompt, return JSON text.
 
     Args:
-        prompt: The text prompt for Gemini.
+        prompt: The text prompt.
         images: List of dicts with keys "base64" and "media_type".
-        model: The Gemini model identifier string.
-        system_instruction: Optional system instruction for role framing.
-        thinking_budget: Token budget for Gemini's internal reasoning.
-            Set to None to disable thinking mode.
-        response_schema: Optional JSON schema dict to enforce output structure.
+        system_instruction: Optional system message for role framing.
         temperature: Sampling temperature (0 = deterministic).
-        use_grounding: If True, enable Google Search grounding.
 
     Returns:
-        The text content from Gemini's response.
+        The JSON text content from the model's response.
     """
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    api_key = os.getenv("GLM_OCR_API_KEY", "")
 
-    # Build content parts: images first, then text
-    parts = []
+    # Build content: images first, then text prompt
+    content = []
     for img in images:
-        raw_bytes = base64.b64decode(img["base64"])
-        parts.append(genai.types.Part.from_bytes(data=raw_bytes, mime_type=img["media_type"]))
-    parts.append(genai.types.Part.from_text(text=prompt))
+        data_uri = f"data:{img['media_type']};base64,{img['base64']}"
+        content.append({"type": "image_url", "image_url": {"url": data_uri}})
+    content.append({"type": "text", "text": prompt})
 
-    config = genai.types.GenerateContentConfig(
-        temperature=temperature,
-        response_mime_type="application/json",
-    )
+    messages = []
     if system_instruction:
-        config.system_instruction = system_instruction
-    if thinking_budget is not None:
-        config.thinking_config = genai.types.ThinkingConfig(
-            thinking_budget=thinking_budget,
-        )
-    if response_schema is not None:
-        config.response_schema = response_schema
-    if use_grounding:
-        config.tools = [genai.types.Tool(google_search=genai.types.GoogleSearch())]
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": content})
 
-    response = client.models.generate_content(
-        model=model, contents=parts, config=config,
+    response = requests.post(
+        GLM_VISION_ENDPOINT,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        json={
+            "model": GLM_VISION_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+            "response_format": {"type": "json_object"},
+            "max_tokens": 4096,
+        },
+        timeout=120,
     )
-    record_gemini_call()
-    return response.text
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
 
 
 def _call_api(
@@ -210,9 +206,9 @@ def _call_api(
     model: str,
     **kwargs,
 ) -> str:
-    """Dispatch to Claude or Gemini based on the model identifier."""
-    if model == GEMINI_FLASH:
-        return _call_gemini(prompt, images, model, **kwargs)
+    """Dispatch to Claude or GLM-4.6V-Flash based on the model identifier."""
+    if model == GLM_VISION_MODEL:
+        return _call_glm_vision(prompt, images, **kwargs)
     return _call_claude(prompt, images, model)
 
 
@@ -390,12 +386,12 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
         ocr_quality=ocr_quality,
         ocr_source="glm",
     )
-    response = _call_gemini(
-        prompt, images, GEMINI_FLASH,
+    response = _call_glm_vision(
+        prompt, images,
         system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
     )
     result = _parse_json_response(response)
-    gemini_calls = 1
+    glm_calls = 1
 
     # Step 4b: Verification pass for uncertain fields
     verification_triggered = False
@@ -409,12 +405,12 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     if uncertain_fields or uncertain_items:
         verification_triggered = True
         verify_prompt = build_verification_prompt(result, uncertain_fields, uncertain_items)
-        verify_response = _call_gemini(
-            verify_prompt, images, GEMINI_FLASH,
+        verify_response = _call_glm_vision(
+            verify_prompt, images,
             system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
         )
         verified = _parse_json_response(verify_response)
-        gemini_calls += 1
+        glm_calls += 1
 
         for field in uncertain_fields:
             if field in verified and verified[field] is not None:
@@ -467,16 +463,16 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     existing_metadata.update({
         "mode": "glm",
         "pipeline": "glm-ocr-first",
-        "scan_passes": gemini_calls,
-        "scans_performed": gemini_calls,
+        "scan_passes": glm_calls,
+        "scans_performed": glm_calls,
         "verification_triggered": verification_triggered,
         "uncertain_fields": uncertain_fields,
         "uncertain_items_count": len(uncertain_items),
         "tiebreaker_triggered": False,
         "agreement_ratio": 1.0,
         "math_validation_triggered": math_validation_triggered,
-        "api_calls": {"sonnet": 0, "opus": 0, "gemini": gemini_calls},
-        "models_used": [GEMINI_FLASH] * gemini_calls,
+        "api_calls": {"sonnet": 0, "opus": 0, "glm_vision": glm_calls},
+        "models_used": [GLM_VISION_MODEL] * glm_calls,
         "ocr_fields_extracted": list(ocr_data.keys()),
         "ocr_quality": ocr_quality,
         "glm_ocr_chars": len(glm_text),
@@ -660,6 +656,40 @@ def _majority_vote_header(candidates: list[dict]) -> dict:
     return best
 
 
+def _build_extraction_profile(format_desc: dict) -> dict:
+    """Convert LLM format_description into a stored extraction profile.
+
+    Args:
+        format_desc: Dict from LLM's format_description response key.
+
+    Returns:
+        Extraction profile dict ready to store in extraction_profile.json.
+    """
+    profile: dict = {}
+
+    if "invoice_number_label" in format_desc:
+        profile["invoice_number_label"] = format_desc["invoice_number_label"]
+
+    if "date_label" in format_desc:
+        profile["date_label"] = format_desc["date_label"]
+
+    # Build column_map from column_mapping (header_text -> field_name)
+    column_mapping = format_desc.get("column_mapping", {})
+    if column_mapping:
+        profile["column_map"] = column_mapping
+
+    if "has_subtotal_row" in format_desc:
+        profile["has_subtotal_row"] = bool(format_desc["has_subtotal_row"])
+
+    if "has_tax_row" in format_desc:
+        profile["has_tax_row"] = bool(format_desc["has_tax_row"])
+
+    if "totals_label" in format_desc:
+        profile["totals_label"] = format_desc["totals_label"]
+
+    return profile
+
+
 def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     """
     GLM-OCR-first pipeline for light mode.
@@ -681,7 +711,26 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     image = Image.open(io.BytesIO(image_bytes))
     image.load()
 
-    variants = prepare_variants(image)
+    from scanner.preprocessing.analyzer import analyze_quality
+    quality_report = analyze_quality(image)
+    needs_preprocessing = (
+        quality_report["blur"]["issue"]
+        or quality_report["brightness"]["issue"]
+        or quality_report["noise"]["issue"]
+    )
+
+    if needs_preprocessing:
+        variants = prepare_variants(image)
+        logger.info(
+            "Quality gate: preprocessing triggered (blur_issue=%s, brightness_issue=%s, noise_issue=%s)",
+            quality_report["blur"]["issue"],
+            quality_report["brightness"]["issue"],
+            quality_report["noise"]["issue"],
+        )
+    else:
+        variants = {"original": image, "preprocessed": image, "quality_report": quality_report}
+        logger.info("Quality gate: preprocessing skipped (image is clean)")
+
     original = variants["original"]
     preprocessed = variants["preprocessed"]
 
@@ -712,7 +761,35 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
     combined_text = glm_text
     if header_ocr_text.strip():
         combined_text += "\n\n--- HEADER REGION OCR ---\n" + header_ocr_text
-    ocr_parsed = parse_ocr_text(combined_text)
+
+    # Early supplier identification — check against known supplier index
+    supplier_mem_early = JsonSupplierMemory()
+    known_supplier_id = identify_supplier(glm_text, supplier_mem_early.list_suppliers())
+
+    is_new_supplier = False
+    if known_supplier_id:
+        # Path A: Known supplier — use extraction profile
+        extraction_profile = supplier_mem_early.get_extraction_profile(known_supplier_id)
+        known_profile = supplier_mem_early.get_profile(known_supplier_id)
+        known_name = known_profile.get("name", "")
+        if extraction_profile and known_name:
+            ocr_parsed = parse_with_profile(combined_text, extraction_profile, known_name)
+            logger.info(
+                "Path A: Known supplier '%s' — using extraction profile for parsing",
+                known_name,
+            )
+        else:
+            ocr_parsed = parse_ocr_text(combined_text)
+            logger.info(
+                "Path A: Known supplier '%s' — no extraction profile yet, using generic parse",
+                known_name,
+            )
+    else:
+        # Path B: New supplier — generic parsing, LLM will describe format
+        is_new_supplier = True
+        ocr_parsed = parse_ocr_text(combined_text)
+        logger.info("Path B: Unknown supplier — using generic parse, will request format description")
+
     ocr_data = ocr_parsed.to_dict()
 
     # Step 3b: Zone-targeted Tesseract fallback for missing fields
@@ -781,11 +858,26 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
             "media_type": "image/png",
         })
 
-    # Step 5: Single Gemini smart pass
-    gemini_calls = 0
+    # Step 5: Single GLM vision smart pass
+    glm_calls = 0
     uncertain_fields: list[str] = []
     uncertain_items: list[int] = []
     verification_triggered = False
+
+    # Build optional supplier context for the LLM
+    llm_supplier_context = None
+    llm_format_request = None
+    if known_supplier_id and not is_new_supplier:
+        ep = supplier_mem_early.get_extraction_profile(known_supplier_id) or {}
+        kp = supplier_mem_early.get_profile(known_supplier_id)
+        llm_supplier_context = build_supplier_context_section(
+            supplier_name=kp.get("name", known_supplier_id),
+            scan_count=kp.get("scan_count", 0),
+            invoice_number_label=ep.get("invoice_number_label"),
+            date_label=ep.get("date_label"),
+        )
+    elif is_new_supplier:
+        llm_format_request = build_format_description_request()
 
     prompt = build_smart_pass_prompt(
         ocr_data, combined_text,
@@ -793,15 +885,33 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
         has_binary_image=False,
         ocr_quality=ocr_quality,
         ocr_source=ocr_source,
+        supplier_context=llm_supplier_context,
+        format_description_request=llm_format_request,
     )
-    response = _call_gemini(
-        prompt, images, GEMINI_FLASH,
+    response = _call_glm_vision(
+        prompt, images,
         system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
     )
     result = _parse_json_response(response)
-    gemini_calls += 1
+    glm_calls += 1
 
-    # Step 5b: Optional verification pass
+    # Step 5b: Save format_description as extraction profile for new suppliers
+    format_desc = result.pop("format_description", None)
+    if is_new_supplier and format_desc and isinstance(format_desc, dict):
+        try:
+            supplier_name_from_result = result.get("supplier", "")
+            if supplier_name_from_result:
+                new_sid = normalize_supplier_id(supplier_name_from_result)
+                ep = _build_extraction_profile(format_desc)
+                supplier_mem_early.update_extraction_profile(new_sid, ep)
+                logger.info(
+                    "Path B: Saved extraction profile for new supplier '%s'",
+                    supplier_name_from_result,
+                )
+        except Exception as ep_err:
+            logger.warning("Failed to save extraction profile (non-fatal): %s", ep_err)
+
+    # Step 5d: Optional verification pass
     readable = result.pop("readable", {})
     uncertain_fields = [f for f, v in readable.items() if v is False]
     for i, item in enumerate(result.get("items", [])):
@@ -815,12 +925,12 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
             uncertain_fields, uncertain_items,
         )
         verify_prompt = build_verification_prompt(result, uncertain_fields, uncertain_items)
-        verify_response = _call_gemini(
-            verify_prompt, images, GEMINI_FLASH,
+        verify_response = _call_glm_vision(
+            verify_prompt, images,
             system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
         )
         verified = _parse_json_response(verify_response)
-        gemini_calls += 1
+        glm_calls += 1
 
         for f in uncertain_fields:
             if f in verified and verified[f] is not None:
@@ -844,27 +954,26 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
         result = auto_correct(result, validation["errors"])
         math_validation_triggered = True
 
-    supplier_mem = JsonSupplierMemory()
     sid = None
     try:
         supplier_name = result.get("supplier", "")
         if supplier_name:
             sid = normalize_supplier_id(supplier_name)
         general_mem = JsonGeneralMemory()
-        result = run_inference(result, sid, supplier_mem, general_mem)
+        result = run_inference(result, sid, supplier_mem_early, general_mem)
     except Exception as e:
         logger.warning("Inference step failed (non-fatal): %s", e)
 
     try:
         if sid and segmentation_result.get("regions_detected"):
-            existing_layout = supplier_mem.get_layout(sid)
+            existing_layout = supplier_mem_early.get_layout(sid)
             if existing_layout is None:
                 layout_desc = build_layout_descriptor(
                     result,
                     segmentation_result["bounding_boxes"],
                     original.size,
                 )
-                supplier_mem.update_layout(sid, layout_desc)
+                supplier_mem_early.update_layout(sid, layout_desc)
     except Exception as e:
         logger.warning("Layout saving failed (non-fatal): %s", e)
 
@@ -874,16 +983,16 @@ def _scan_light(image_bytes: bytes, debug: bool = False) -> dict:
         "mode": "light",
         "pipeline": "glm-ocr-light",
         "ocr_source": ocr_source,
-        "scan_passes": gemini_calls,
-        "scans_performed": gemini_calls,
+        "scan_passes": glm_calls,
+        "scans_performed": glm_calls,
         "verification_triggered": verification_triggered,
         "uncertain_fields": uncertain_fields,
         "uncertain_items_count": len(uncertain_items),
         "tiebreaker_triggered": False,
         "agreement_ratio": 1.0,
         "math_validation_triggered": math_validation_triggered,
-        "api_calls": {"sonnet": 0, "opus": 0, "gemini": gemini_calls},
-        "models_used": [GEMINI_FLASH] * gemini_calls,
+        "api_calls": {"sonnet": 0, "opus": 0, "glm_vision": glm_calls},
+        "models_used": [GLM_VISION_MODEL] * glm_calls,
         "ocr_fields_extracted": list(ocr_data.keys()),
         "ocr_quality": ocr_quality,
         "glm_ocr_chars": len(glm_text),
@@ -933,11 +1042,8 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             logger.error("GLM-OCR API error: %s", e)
             return _error_result(mode, f"GLM-OCR API error: {e}")
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse Gemini response as JSON: %s", e)
-            return _error_result(mode, f"Invalid JSON in Gemini response: {e}")
-        except genai.errors.ClientError as e:
-            logger.error("Gemini API error: %s", e)
-            return _error_result(mode, f"Gemini API error: {e}")
+            logger.error("Failed to parse GLM vision response as JSON: %s", e)
+            return _error_result(mode, f"Invalid JSON in GLM vision response: {e}")
         except Exception as e:
             logger.error("GLM scan failed: %s", e, exc_info=True)
             return _error_result(mode, f"Scan failed: {e}")
@@ -947,11 +1053,8 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         try:
             return _scan_light(image_bytes, debug)
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse Gemini response as JSON: %s", e)
-            return _error_result(mode, f"Invalid JSON in Gemini response: {e}")
-        except genai.errors.ClientError as e:
-            logger.error("Gemini API error: %s", e)
-            return _error_result(mode, f"Gemini API error: {e}")
+            logger.error("Failed to parse GLM vision response as JSON: %s", e)
+            return _error_result(mode, f"Invalid JSON in GLM vision response: {e}")
         except Exception as e:
             logger.error("Light scan failed: %s", e, exc_info=True)
             return _error_result(mode, f"Scan failed: {e}")
@@ -1069,7 +1172,7 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         elapsed = time.time() - start_time
         sonnet_count = sum(1 for m in models_used if m == SONNET)
         opus_count = sum(1 for m in models_used if m == OPUS)
-        gemini_count = sum(1 for m in models_used if m == GEMINI_FLASH)
+        glm_vision_count = sum(1 for m in models_used if m == GLM_VISION_MODEL)
 
         # Preserve any metadata added by inference before merging
         existing_metadata = result.get("scan_metadata", {})
@@ -1083,7 +1186,7 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
             "api_calls": {
                 "sonnet": sonnet_count,
                 "opus": opus_count,
-                "gemini": gemini_count,
+                "glm_vision": glm_vision_count,
             },
             "models_used": models_used,
         })
@@ -1117,9 +1220,6 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
     except anthropic.APIError as e:
         logger.error("Anthropic API error: %s", e)
         return _error_result(mode, f"Claude API error: {e}")
-    except genai.errors.ClientError as e:
-        logger.error("Gemini API error: %s", e)
-        return _error_result(mode, f"Gemini API error: {e}")
     except Exception as e:
         logger.error("Scan failed unexpectedly: %s", e, exc_info=True)
         return _error_result(mode, f"Scan failed: {e}")

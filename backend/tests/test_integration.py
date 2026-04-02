@@ -18,7 +18,7 @@ from unittest.mock import patch, MagicMock, call
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from scanner.scanning.engine import scan_invoice, SONNET, OPUS, GEMINI_FLASH
+from scanner.scanning.engine import scan_invoice, SONNET, OPUS, GLM_VISION_MODEL
 from scanner.memory import JsonSupplierMemory, JsonGeneralMemory
 from tests.integration_helpers import (
     make_receipt_image_bytes,
@@ -32,10 +32,10 @@ from tests.integration_helpers import (
 # ---------------------------------------------------------------------------
 
 # Normal/heavy mode: scan_invoice() routes through _call_api which dispatches
-# to _call_gemini (since _get_model_for_scan always returns GEMINI_FLASH now).
-# Patching _call_api intercepts both Claude and Gemini paths.
+# to _call_glm_vision (since _get_model_for_scan always returns GLM_VISION_MODEL now).
+# Patching _call_api intercepts both Claude and GLM vision paths.
 CALL_CLAUDE = "scanner.scanning.engine._call_api"
-CALL_GEMINI = "scanner.scanning.engine._call_gemini"
+CALL_GLM_VISION = "scanner.scanning.engine._call_glm_vision"
 CALL_GLM_OCR = "scanner.scanning.engine._call_glm_ocr"
 TIER3_AI = "scanner.memory.inference._tier3_ai"
 OCR_PREPASS = "scanner.scanning.ocr.pytesseract"
@@ -505,81 +505,81 @@ class TestModeComparison(TestCase):
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_GLM_OCR, return_value="Fresh Foods Inc Invoice INV-1234 2026-03-15 Total: $23.65")
-    @patch(CALL_GEMINI)
-    def test_light_mode_uses_only_gemini(
+    @patch(CALL_GLM_VISION)
+    def test_light_mode_uses_only_glm_vision(
         self, mock_call, mock_glm, mock_tess, mock_tier3
     ):
-        """Light mode: all Gemini calls use GEMINI_FLASH (GLM-OCR-first pipeline)."""
+        """Light mode: all GLM vision calls use GLM_VISION_MODEL (GLM-OCR-first pipeline)."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = make_gemini_light_side_effects()
         scan_invoice(self.image_bytes, mode="light")
-        models = [c.args[2] for c in mock_call.call_args_list]
+        # _call_glm_vision has no positional model arg — just verify it was called
         self.assertTrue(
-            all(m == GEMINI_FLASH for m in models),
-            f"Expected all GEMINI_FLASH, got {models}",
+            mock_call.called,
+            "_call_glm_vision should have been called in light mode",
         )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_heavy_mode_uses_only_gemini(
+    def test_heavy_mode_uses_only_glm_vision(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Heavy mode: all scans use GEMINI_FLASH (Claude credits unavailable)."""
+        """Heavy mode: all scans use GLM_VISION_MODEL (Claude credits unavailable)."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         scan_invoice(self.image_bytes, mode="heavy")
         models = self._get_models_used(mock_call)
         self.assertTrue(
-            all(m == GEMINI_FLASH for m in models),
-            f"Expected all GEMINI_FLASH, got {models}",
+            all(m == GLM_VISION_MODEL for m in models),
+            f"Expected all GLM_VISION_MODEL, got {models}",
         )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_normal_mode_scans_1_2_use_gemini(
+    def test_normal_mode_scans_1_2_use_glm_vision(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Normal mode without tiebreaker: both scans use GEMINI_FLASH."""
+        """Normal mode without tiebreaker: both scans use GLM_VISION_MODEL."""
         mock_tess.image_to_string.return_value = ""
         mock_call.return_value = self.agree_response
         scan_invoice(self.image_bytes, mode="normal")
         models = self._get_models_used(mock_call)
         self.assertEqual(len(models), 2)
-        self.assertEqual(models[0], GEMINI_FLASH)
-        self.assertEqual(models[1], GEMINI_FLASH)
+        self.assertEqual(models[0], GLM_VISION_MODEL)
+        self.assertEqual(models[1], GLM_VISION_MODEL)
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_CLAUDE)
-    def test_normal_mode_tiebreaker_uses_gemini(
+    def test_normal_mode_tiebreaker_uses_glm_vision(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Normal mode with tiebreaker: all 3 passes use GEMINI_FLASH."""
+        """Normal mode with tiebreaker: all 3 passes use GLM_VISION_MODEL."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         scan_invoice(self.image_bytes, mode="normal")
         models = self._get_models_used(mock_call)
         self.assertEqual(len(models), 3)
         self.assertTrue(
-            all(m == GEMINI_FLASH for m in models),
-            f"Expected all GEMINI_FLASH, got {models}",
+            all(m == GLM_VISION_MODEL for m in models),
+            f"Expected all GLM_VISION_MODEL, got {models}",
         )
 
     @patch(TIER3_AI, return_value=None)
     @patch(OCR_PREPASS)
     @patch(CALL_GLM_OCR, return_value="Fresh Foods Inc Invoice INV-1234 2026-03-15 Total: $23.65")
-    @patch(CALL_GEMINI)
+    @patch(CALL_GLM_VISION)
     def test_scan_metadata_api_calls_counts_correct_for_light(
         self, mock_call, mock_glm, mock_tess, mock_tier3
     ):
-        """Light mode: api_calls.gemini>=1, api_calls.sonnet=0, api_calls.opus=0."""
+        """Light mode: api_calls.glm_vision>=1, api_calls.sonnet=0, api_calls.opus=0."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = make_gemini_light_side_effects()
         result = scan_invoice(self.image_bytes, mode="light")
         api_calls = result["scan_metadata"]["api_calls"]
-        self.assertGreaterEqual(api_calls["gemini"], 1)
+        self.assertGreaterEqual(api_calls["glm_vision"], 1)
         self.assertEqual(api_calls["sonnet"], 0)
         self.assertEqual(api_calls["opus"], 0)
 
@@ -589,12 +589,12 @@ class TestModeComparison(TestCase):
     def test_scan_metadata_api_calls_counts_correct_for_heavy_with_tiebreaker(
         self, mock_call, mock_tess, mock_tier3
     ):
-        """Heavy mode with tiebreaker: api_calls.gemini=3, api_calls.opus=0."""
+        """Heavy mode with tiebreaker: api_calls.glm_vision=3, api_calls.opus=0."""
         mock_tess.image_to_string.return_value = ""
         mock_call.side_effect = [self.scan1, self.scan2, self.tiebreaker]
         result = scan_invoice(self.image_bytes, mode="heavy")
         api_calls = result["scan_metadata"]["api_calls"]
-        self.assertEqual(api_calls["gemini"], 3)
+        self.assertEqual(api_calls["glm_vision"], 3)
         self.assertEqual(api_calls["opus"], 0)
 
 

@@ -446,6 +446,8 @@ def build_smart_pass_prompt(
     has_binary_image: bool = False,
     ocr_quality: str = "good",
     ocr_source: str = "tesseract",
+    supplier_context: str | None = None,
+    format_description_request: str | None = None,
 ) -> str:
     """
     Build the extraction prompt for the OCR-first pipeline (pass 1).
@@ -462,6 +464,11 @@ def build_smart_pass_prompt(
             zoomed-in crop of the header region.
         ocr_quality: "good", "poor", or "failed" — indicates OCR reliability.
         ocr_source: "glm" or "tesseract" — indicates OCR engine quality.
+        supplier_context: Optional pre-formatted supplier context section
+            (e.g. from build_supplier_context_section()) to append to the prompt.
+        format_description_request: Optional pre-formatted format description
+            request section (e.g. from build_format_description_request()) to
+            append to the prompt.
 
     Returns:
         Prompt string for the extraction pass.
@@ -609,6 +616,13 @@ You receive multiple image variants:
         "total": "scanned|inferred|missing"
     }}}}
 }}}}"""
+
+    # Inject supplier context or format description request if provided
+    if supplier_context:
+        prompt += f"\n\n{supplier_context}"
+    if format_description_request:
+        prompt += f"\n\n{format_description_request}"
+
     return prompt
 
 
@@ -966,3 +980,74 @@ Please describe:
 Be specific and honest about what is clear vs unclear.
 
 Respond with a JSON object: {"description": "your detailed description here"}"""
+
+
+# ---------------------------------------------------------------------------
+# Phase 21: Supplier-aware prompt helpers
+# ---------------------------------------------------------------------------
+
+def build_supplier_context_section(
+    supplier_name: str,
+    scan_count: int,
+    invoice_number_label: str | None = None,
+    date_label: str | None = None,
+) -> str:
+    """Build a supplier context section for known suppliers (Path A).
+
+    Tells the LLM this is a known supplier so it can focus on validating
+    pre-extracted data rather than rediscovering field locations.
+
+    Args:
+        supplier_name: The known supplier's display name.
+        scan_count: Number of previous scans for this supplier.
+        invoice_number_label: Label used for invoice numbers (e.g. "ORDER #").
+        date_label: Label used for the date (e.g. "SHIP DATE").
+
+    Returns:
+        Formatted string to append to the main prompt.
+    """
+    lines = [
+        "## Supplier Context (Known Supplier)",
+        f'This invoice is from "{supplier_name}" (scanned {scan_count} time{"s" if scan_count != 1 else ""} before).',
+        "The OCR parser has already extracted fields using this supplier's known format.",
+        "Focus on VALIDATING the pre-extracted data against the image, not re-discovering the format.",
+    ]
+    if invoice_number_label:
+        lines.append(
+            f'The invoice number field is labeled "{invoice_number_label}" on this supplier\'s invoices.'
+        )
+    if date_label:
+        lines.append(
+            f'The date field is labeled "{date_label}" on this supplier\'s invoices.'
+        )
+    return "\n".join(lines)
+
+
+def build_format_description_request() -> str:
+    """Build a format description request section for new suppliers (Path B).
+
+    Asks the LLM to describe the invoice format on first scan so that
+    future scans can use a supplier-specific extraction profile.
+
+    Returns:
+        Formatted string to append to the main prompt.
+    """
+    return (
+        '## Additional Task \u2014 Invoice Format Description\n'
+        "This appears to be the FIRST invoice from this supplier. In addition to extracting data,\n"
+        'please describe the invoice format by adding a "format_description" key to your JSON response:\n\n'
+        '"format_description": {\n'
+        '    "invoice_number_label": "the EXACT label text printed next to the invoice number '
+        '(e.g. \\"INVOICE NO.\\", \\"ORDER #\\", \\"INV#\\")\\",\n'
+        '    "date_label": "the EXACT label text printed next to the date '
+        '(e.g. \\"INVOICE DATE\\", \\"SHIP DATE\\", \\"DATE\\")\\",\n'
+        '    "column_headers": ["exact text of each column header in the line items table, left to right"],\n'
+        '    "column_mapping": {\n'
+        '        "column_header_text": "one of: quantity, unit, name, upc, unit_price, total"\n'
+        "    },\n"
+        '    "has_subtotal_row": true,\n'
+        '    "has_tax_row": true,\n'
+        '    "totals_label": "exact label text next to the grand total (e.g. \\"TOTAL\\", \\"GRAND TOTAL\\")"\n'
+        "}\n\n"
+        "If you cannot determine a value with confidence, omit that key from format_description rather than guessing."
+    )
