@@ -390,6 +390,25 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     ocr_quality = "good" if ocr_field_count >= 3 else "poor"
     logger.info("GLM-OCR parsed %d structured fields (quality=%s)", ocr_field_count, ocr_quality)
 
+    # Supplier needs higher bar for fast-path trust (≥80%) + cross-validate against memory
+    if "supplier" not in missing_scalar:
+        supplier_pf = ocr_parsed.supplier
+        if supplier_pf.confidence < 80:
+            logger.info("OCR supplier conf %d%% < 80%% — sending to LLM", supplier_pf.confidence)
+            missing_scalar.append("supplier")
+        else:
+            _smem = JsonSupplierMemory()
+            _known_sid = _match_supplier_from_ocr(glm_text, _smem)
+            if _known_sid:
+                _known_name = _smem.list_suppliers().get(_known_sid, "")
+                _parsed = str(supplier_pf.value or "")
+                if _known_name.lower() not in _parsed.lower() and _parsed.lower() not in _known_name.lower():
+                    logger.info(
+                        "OCR supplier %r conflicts with known supplier %r — sending to LLM",
+                        _parsed, _known_name,
+                    )
+                    missing_scalar.append("supplier")
+
     # OCR fast path: skip LLM entirely if all scalar fields ≥60% and items complete
     if not missing_scalar and not items_incomplete:
         logger.info("OCR fast path: all fields confident, skipping LLM")
@@ -431,10 +450,11 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
         crop_descriptions = []
         images = []
 
-        if need_header and has_header_crop:
-            header_b64, header_type = _optimize_image_for_vision(segmentation_result["header"], max_edge=1600)
-            images.append({"base64": header_b64, "media_type": header_type})
-            crop_descriptions.append("header crop")
+        if need_header:
+            # Supplier identification needs full-page context; segmented header crops
+            # are unreliable (may capture the items table instead of the company header).
+            images.append({"base64": raw_b64, "media_type": raw_media_type})
+            crop_descriptions.append("full page")
         elif not images:
             # Fall back to raw image if no useful crops available
             images.append({"base64": raw_b64, "media_type": raw_media_type})
@@ -445,8 +465,8 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
             images.append({"base64": totals_b64, "media_type": totals_type})
             crop_descriptions.append("totals crop")
 
-        if need_items and segmentation_result.get("items") is not None:
-            items_b64, items_type = _optimize_image_for_vision(segmentation_result["items"], max_edge=1600)
+        if need_items and segmentation_result.get("line_items") is not None:
+            items_b64, items_type = _optimize_image_for_vision(segmentation_result["line_items"], max_edge=1600)
             images.append({"base64": items_b64, "media_type": items_type})
             crop_descriptions.append("line items crop")
 
