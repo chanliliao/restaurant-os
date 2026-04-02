@@ -146,7 +146,8 @@ def _parse_money(s: str) -> float | None:
 
 
 _SUPPLIER_SKIP_RE = re.compile(
-    r"\b(ship\s+to|bill\s+to|sold\s+to|customer|remit\s+to|license|plenary)\b",
+    r"\b(ship\s+to|bill\s+to|sold\s+to|customer|remit\s+to|license|plenary|"
+    r"tax\s+reg|tax\s+registration|reg\s*#|registration\s*#)\b",
     re.IGNORECASE,
 )
 
@@ -194,6 +195,10 @@ def _extract_supplier(lines: list[str]) -> ParsedField:
         name = re.sub(r"^[^A-Za-z]+", "", name)
         name = re.sub(r"[^A-Za-z.)]+$", "", name)
         if len(name) < 3:
+            continue
+
+        # Skip candidates that look like regulatory/ID lines (contain #, REG, or 4+ digit sequences)
+        if re.search(r'(#|\bREG\b|\d{4,})', name, re.IGNORECASE):
             continue
 
         # Lines in first 5 get higher confidence
@@ -714,7 +719,15 @@ def parse_ocr_text(ocr_text: str) -> OCRParseResult:
     plain_text = _strip_html(ocr_text) if has_html else ocr_text
     plain_lines = plain_text.split("\n")
 
-    supplier = _extract_supplier(plain_lines)
+    # Supplier is always in the header (above any table). When HTML is present,
+    # restrict supplier search to pre-table text to prevent item names inside
+    # table rows (e.g. "Food Plastie Wrap") from matching company_suffixes.
+    if has_html:
+        pre_table = ocr_text[:ocr_text.lower().index("<table")]
+        supplier_lines = _strip_html(pre_table).split("\n")
+    else:
+        supplier_lines = plain_lines
+    supplier = _extract_supplier(supplier_lines)
     invoice_number = _extract_invoice_number(plain_text)
     date = _extract_date(plain_text)
     subtotal, tax, total = _extract_totals(plain_text)
