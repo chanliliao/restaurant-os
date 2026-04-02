@@ -211,12 +211,25 @@ def _extract_supplier(lines: list[str]) -> ParsedField:
     return best if best is not None else ParsedField(value=None, confidence=0, source="missing")
 
 
+# Words that look like invoice number captures but are actually column headers
+_INVOICE_NUM_SKIP = re.compile(
+    r"^(PAGE|DATE|NO|NUMBER|REF|PO|COPY|CUSTOMER|ORDER|TERMS?|AMOUNT|TOTAL|QTY|UNIT|PRICE|DESC|ITEM)$",
+    re.IGNORECASE,
+)
+
+
 def _extract_invoice_number(text: str) -> ParsedField:
     """Extract invoice number using regex patterns."""
     for pattern in _INVOICE_NUM_PATTERNS:
         m = pattern.search(text)
         if m:
             value = m.group(1).strip()
+            # Must contain at least one digit — pure words are column headers, not numbers
+            if not any(c.isdigit() for c in value):
+                continue
+            # Skip known header words even if they somehow contained a digit
+            if _INVOICE_NUM_SKIP.match(value):
+                continue
             # Higher confidence if it has a clear prefix letter + digits
             if re.match(r"^[A-Z]\d+$", value):
                 return ParsedField(value=value, confidence=80, source="ocr")
@@ -416,12 +429,25 @@ _COL_MAP: list[tuple[list[str], str]] = [
 ]
 
 
+def _kw_matches(kw: str, norm: str) -> bool:
+    """Return True if keyword matches the normalized header string.
+
+    Short keywords (≤3 chars) must match as whole words to avoid substring false
+    positives — e.g. "um" in _COL_MAP must NOT match "costumer", and "cs" must
+    NOT match "description".  Longer keywords use plain substring matching.
+    """
+    if len(kw) <= 3:
+        return bool(re.search(r"(?<![a-z])" + re.escape(kw) + r"(?![a-z])", norm))
+    return kw in norm
+
+
 def _map_columns(header_row: list[str]) -> dict[str, int]:
     """Map column indices from a header row. Returns field_name → col_index.
 
-    Special rule: when both "each_price" and "unit_price" columns are present,
-    "each_price" wins for the unit_price field (JFC invoices use EACH PRICE for
-    the per-item price and UNIT PRICE for the per-case price).
+    When both "each_price" and "unit_price" columns are present (e.g. JFC invoices
+    have EACH PRICE per unit and UNIT PRICE per case), keep both. The item
+    extractor will prefer unit_price (the per-case price = qty * unit_price = amount)
+    and fall back to each_price only when unit_price is absent.
     """
     mapping: dict[str, int] = {}
     for col_idx, cell in enumerate(header_row):
@@ -431,13 +457,10 @@ def _map_columns(header_row: list[str]) -> dict[str, int]:
         for keywords, field_name in _COL_MAP:
             if field_name in mapping:
                 continue
-            if any(kw in norm for kw in keywords):
+            if any(_kw_matches(kw, norm) for kw in keywords):
                 mapping[field_name] = col_idx
                 break
 
-    # Merge each_price → unit_price if both found (each_price takes precedence)
-    if "each_price" in mapping:
-        mapping["unit_price"] = mapping.pop("each_price")
     return mapping
 
 
@@ -560,7 +583,8 @@ def _extract_items_from_html_tables(text: str) -> list[ParsedItem]:
         name_i = col_map.get("name")
         qty_i = col_map.get("quantity_each") or col_map.get("quantity")
         qty_case_i = col_map.get("quantity_case")
-        up_i = col_map.get("unit_price")
+        # Prefer unit_price (per-case price); fall back to each_price (per-unit price)
+        up_i = col_map.get("unit_price") if col_map.get("unit_price") is not None else col_map.get("each_price")
         amt_i = col_map.get("amount")
         unit_i = col_map.get("unit")
 

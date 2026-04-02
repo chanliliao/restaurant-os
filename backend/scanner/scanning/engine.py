@@ -18,8 +18,7 @@ import anthropic
 import requests
 from PIL import Image
 
-from scanner.preprocessing import prepare_variants
-from scanner.preprocessing.processor import remove_stripes, prepare_alternative_variant
+from scanner.preprocessing.processor import remove_stripes, prepare_alternative_variant, auto_orient
 from scanner.preprocessing.segmentation import segment_invoice, segment_invoice_zones
 from scanner.preprocessing.layout import build_layout_descriptor
 from scanner.scanning.ocr import ocr_prepass, extract_text_enhanced
@@ -148,6 +147,22 @@ def _call_claude(prompt: str, images: list[dict], model: str) -> str:
     return response.content[0].text
 
 
+def _optimize_image_for_vision(pil_image: Image.Image, max_edge: int = 1600) -> tuple[str, str]:
+    """
+    Resize and JPEG-encode a PIL image for GLM Vision to keep payload small.
+
+    Returns:
+        (base64_string, media_type)
+    """
+    w, h = pil_image.size
+    if max(w, h) > max_edge:
+        scale = max_edge / max(w, h)
+        pil_image = pil_image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    pil_image.convert("RGB").save(buf, format="JPEG", quality=82)
+    return base64.b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
+
+
 def _call_glm_vision(
     prompt: str,
     images: list[dict],
@@ -156,6 +171,7 @@ def _call_glm_vision(
 ) -> str:
     """
     Call GLM-4.6V-Flash with images + prompt, return JSON text.
+    Retries up to 3 times on 429 with exponential backoff.
 
     Args:
         prompt: The text prompt.
@@ -180,24 +196,37 @@ def _call_glm_vision(
         messages.append({"role": "system", "content": system_instruction})
     messages.append({"role": "user", "content": content})
 
-    response = requests.post(
-        GLM_VISION_ENDPOINT,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        json={
-            "model": GLM_VISION_MODEL,
-            "messages": messages,
-            "temperature": temperature,
-            "response_format": {"type": "json_object"},
-            "max_tokens": 4096,
-        },
-        timeout=120,
-    )
+    payload = {
+        "model": GLM_VISION_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "response_format": {"type": "json_object"},
+        "max_tokens": 4096,
+    }
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        response = requests.post(
+            GLM_VISION_ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            json=payload,
+            timeout=120,
+        )
+        if response.status_code == 429 and attempt < max_retries - 1:
+            wait = 5 * (2 ** attempt)  # 5s, 10s, 20s
+            logger.warning("GLM Vision 429 rate limit — retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+            time.sleep(wait)
+            continue
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+
+    # Final attempt already raised above; this line is unreachable but satisfies linters
     response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    return ""
 
 
 def _call_api(
@@ -310,18 +339,13 @@ def _call_glm_ocr(image_base64: str, media_type: str = "image/png") -> str:
 
 def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     """
-    GLM-OCR pipeline: uses GLM-OCR for high-quality document parsing,
-    then a single Gemini call for structured extraction.
-
-    Advantages over light mode:
-    - GLM-OCR handles blurry/striped images much better than Tesseract
-    - Only 1 Gemini call needed (richer OCR context reduces hallucination)
+    GLM-OCR targeted pipeline: fast benchmark-proven pipeline.
 
     Steps:
-    1. Preprocess image
-    2. Send to GLM-OCR → get structured markdown text
-    3. Parse GLM-OCR text into structured fields (via parse_ocr_text)
-    4. Single Gemini call: validate + fill gaps
+    1. Auto-orient image, GLM-OCR on raw image
+    2. Parse OCR + assess completeness → fast path if all fields confident
+    3. Segment + build targeted crop list for only missing/low-conf fields
+    4. Single GLM Vision call with targeted crops
     5. Math validation → inference → layout saving
     """
     start_time = time.time()
@@ -329,11 +353,9 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     image = Image.open(io.BytesIO(image_bytes))
     image.load()
 
-    variants = prepare_variants(image)
-    original = variants["original"]
-    preprocessed = variants["preprocessed"]
+    # Step 1: Auto-orient only (no preprocessing), then GLM-OCR on raw image
+    original = auto_orient(image)
 
-    # Step 1: GLM-OCR — optimize image size first to avoid timeouts on large JPEGs
     logger.info("GLM-OCR: optimizing image for upload")
     glm_bytes, raw_media_type = _optimize_for_glm(image_bytes)
     raw_b64 = base64.b64encode(glm_bytes).decode("utf-8")
@@ -341,92 +363,154 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     glm_text = _call_glm_ocr(raw_b64, media_type=raw_media_type)
     logger.info("GLM-OCR: extracted %d characters", len(glm_text))
 
-    # Step 2: Segment and run enhanced header OCR (Tesseract, for cross-reference)
-    segmentation_result = segment_invoice(original)
-    header_ocr_text = ""
-    if segmentation_result.get("header") is not None:
-        header_ocr_text = extract_text_enhanced(segmentation_result["header"])
-
-    # Step 3: Parse GLM-OCR text into structured fields
-    combined_text = glm_text
-    if header_ocr_text.strip():
-        combined_text += "\n\n--- HEADER REGION OCR ---\n" + header_ocr_text
-    ocr_parsed = parse_ocr_text(combined_text)
+    # Step 2: Parse OCR text + assess completeness
+    ocr_parsed = parse_ocr_text(glm_text)
     ocr_data = ocr_parsed.to_dict()
 
-    # GLM-OCR output is high quality — assess accordingly
+    SCALAR_FIELDS = ("supplier", "invoice_number", "date", "subtotal", "tax", "total")
+    missing_scalar = []
+    for fname in SCALAR_FIELDS:
+        pf = getattr(ocr_parsed, fname)
+        if pf.value is None or pf.confidence < 60:
+            missing_scalar.append(fname)
+
+    items_incomplete = False
+    if not ocr_parsed.items:
+        items_incomplete = True
+    else:
+        for item in ocr_parsed.items:
+            if item.quantity is None or item.total is None:
+                items_incomplete = True
+                break
+
+    # Determine OCR quality for downstream prompts
     ocr_useful_fields = [k for k in ocr_data if k != "items"]
     ocr_has_items = bool(ocr_data.get("items"))
     ocr_field_count = len(ocr_useful_fields) + (1 if ocr_has_items else 0)
-    if ocr_field_count >= 3:
-        ocr_quality = "good"
-    elif ocr_field_count >= 1:
-        ocr_quality = "poor"
-    else:
-        ocr_quality = "poor"  # GLM-OCR text is still richer than Tesseract even if unparsed
+    ocr_quality = "good" if ocr_field_count >= 3 else "poor"
     logger.info("GLM-OCR parsed %d structured fields (quality=%s)", ocr_field_count, ocr_quality)
 
-    # Step 4: Single Gemini call — OCR context is now much richer
-    has_header_crop = segmentation_result.get("header") is not None
-    preprocessed_b64 = _encode_image_base64(preprocessed)
-    images = [
-        {"base64": raw_b64, "media_type": raw_media_type},
-        {"base64": preprocessed_b64, "media_type": "image/png"},
-    ]
-    if has_header_crop:
-        images.append({
-            "base64": _encode_image_base64(segmentation_result["header"]),
-            "media_type": "image/png",
-        })
+    # OCR fast path: skip LLM entirely if all scalar fields ≥60% and items complete
+    if not missing_scalar and not items_incomplete:
+        logger.info("OCR fast path: all fields confident, skipping LLM")
+        result = {}
+        for fname in SCALAR_FIELDS:
+            pf = getattr(ocr_parsed, fname)
+            if pf.value is not None:
+                result[fname] = pf.value
+        result["items"] = []
+        for item in ocr_parsed.items:
+            result["items"].append({
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "unit_price": item.unit_price,
+                "total": item.total,
+                "confidence": item.confidence,
+            })
+        result.setdefault("confidence", {})
+        glm_calls = 0
 
-    prompt = build_smart_pass_prompt(
-        ocr_data, combined_text,
-        has_header_crop=has_header_crop,
-        has_binary_image=False,
-        ocr_quality=ocr_quality,
-        ocr_source="glm",
-    )
-    response = _call_glm_vision(
-        prompt, images,
-        system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
-    )
-    result = _parse_json_response(response)
-    glm_calls = 1
+        # Segmentation still needed for layout saving
+        segmentation_result = segment_invoice(original)
 
-    # Step 4b: Verification pass for uncertain fields
-    verification_triggered = False
-    readable = result.pop("readable", {})
-    uncertain_fields = [f for f, v in readable.items() if v is False]
-    uncertain_items = []
-    for i, item in enumerate(result.get("items", [])):
-        if item.pop("readable", True) is False:
-            uncertain_items.append(i)
+        # Jump to Step 5
+        verification_triggered = False
+        uncertain_fields = []
+        uncertain_items = []
 
-    if uncertain_fields or uncertain_items:
-        verification_triggered = True
-        verify_prompt = build_verification_prompt(result, uncertain_fields, uncertain_items)
-        verify_response = _call_glm_vision(
-            verify_prompt, images,
+    else:
+        # Step 3: Segment + build targeted crop list
+        segmentation_result = segment_invoice(original)
+
+        need_header = bool(set(missing_scalar) & {"supplier", "invoice_number", "date"})
+        need_totals = bool(set(missing_scalar) & {"subtotal", "tax", "total"})
+        need_items = items_incomplete
+
+        has_header_crop = segmentation_result.get("header") is not None
+        crop_descriptions = []
+        images = []
+
+        if need_header and has_header_crop:
+            header_b64, header_type = _optimize_image_for_vision(segmentation_result["header"], max_edge=1600)
+            images.append({"base64": header_b64, "media_type": header_type})
+            crop_descriptions.append("header crop")
+        elif not images:
+            # Fall back to raw image if no useful crops available
+            images.append({"base64": raw_b64, "media_type": raw_media_type})
+            crop_descriptions.append("full page")
+
+        if need_totals and segmentation_result.get("totals") is not None:
+            totals_b64, totals_type = _optimize_image_for_vision(segmentation_result["totals"], max_edge=1600)
+            images.append({"base64": totals_b64, "media_type": totals_type})
+            crop_descriptions.append("totals crop")
+
+        if need_items and segmentation_result.get("items") is not None:
+            items_b64, items_type = _optimize_image_for_vision(segmentation_result["items"], max_edge=1600)
+            images.append({"base64": items_b64, "media_type": items_type})
+            crop_descriptions.append("line items crop")
+
+        # If segmentation produced no useful crops at all, send raw image
+        if not images:
+            images = [{"base64": raw_b64, "media_type": raw_media_type}]
+            crop_descriptions = ["full page"]
+
+        # Step 4: Single GLM Vision call with targeted crops
+        targeted_note = (
+            "\n\n## Targeted Extraction\n"
+            f"Images provided: {', '.join(crop_descriptions)}. "
+            "OCR already extracted most fields. "
+            f"Focus on: {', '.join(missing_scalar) if missing_scalar else 'line items'}."
+        )
+        prompt = build_smart_pass_prompt(
+            ocr_data, glm_text,
+            has_header_crop=has_header_crop,
+            has_binary_image=False,
+            ocr_quality=ocr_quality,
+            ocr_source="glm",
+        ) + targeted_note
+
+        response = _call_glm_vision(
+            prompt, images,
             system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
         )
-        verified = _parse_json_response(verify_response)
-        glm_calls += 1
+        result = _flatten_result(_parse_json_response(response))
+        glm_calls = 1
 
-        for field in uncertain_fields:
-            if field in verified and verified[field] is not None:
-                result[field] = verified[field]
-            if field in verified.get("confidence", {}):
-                result.setdefault("confidence", {})[field] = verified["confidence"][field]
-            if field in verified.get("inference_sources", {}):
-                result.setdefault("inference_sources", {})[field] = verified["inference_sources"][field]
+        # Step 4b: Verification pass for uncertain fields
+        verification_triggered = False
+        readable = result.pop("readable", {})
+        uncertain_fields = [f for f, v in readable.items() if v is False]
+        uncertain_items = []
+        for i, item in enumerate(result.get("items", [])):
+            if item.pop("readable", True) is False:
+                uncertain_items.append(i)
 
-        verified_items = verified.get("items", [])
-        for idx in uncertain_items:
-            if idx < len(verified_items) and idx < len(result.get("items", [])):
-                result["items"][idx] = verified_items[idx]
+        if uncertain_fields or uncertain_items:
+            verification_triggered = True
+            verify_prompt = build_verification_prompt(result, uncertain_fields, uncertain_items)
+            verify_response = _call_glm_vision(
+                verify_prompt, images,
+                system_instruction=ACCOUNTANT_SYSTEM_INSTRUCTION,
+            )
+            verified = _flatten_result(_parse_json_response(verify_response))
+            glm_calls += 1
+
+            for field in uncertain_fields:
+                if field in verified and verified[field] is not None:
+                    result[field] = verified[field]
+                if field in verified.get("confidence", {}):
+                    result.setdefault("confidence", {})[field] = verified["confidence"][field]
+                if field in verified.get("inference_sources", {}):
+                    result.setdefault("inference_sources", {})[field] = verified["inference_sources"][field]
+
+            verified_items = verified.get("items", [])
+            for idx in uncertain_items:
+                if idx < len(verified_items) and idx < len(result.get("items", [])):
+                    result["items"][idx] = verified_items[idx]
 
     # Step 5: OCR cross-validation, math, inference, layout
-    result = _cross_validate_invoice_number(result, ocr_parsed, combined_text)
+    result = _cross_validate_invoice_number(result, ocr_parsed, glm_text)
 
     validation = validate_math(result)
     math_validation_triggered = False
@@ -462,7 +546,8 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
     existing_metadata = result.get("scan_metadata", {})
     existing_metadata.update({
         "mode": "glm",
-        "pipeline": "glm-ocr-first",
+        "pipeline": "glm-ocr-targeted",
+        "preprocessing": False,
         "scan_passes": glm_calls,
         "scans_performed": glm_calls,
         "verification_triggered": verification_triggered,
@@ -484,7 +569,6 @@ def _scan_glm(image_bytes: bytes, debug: bool = False) -> dict:
             "elapsed_seconds": round(elapsed, 2),
             "glm_ocr_text": glm_text,
             "ocr_parsed": ocr_data,
-            "quality_report": variants["quality_report"],
             "verification_triggered": verification_triggered,
             "uncertain_fields": uncertain_fields,
             "math_validation": {
@@ -536,6 +620,27 @@ def _parse_json_response(text: str) -> dict:
     # Remove single-line comments
     fixed = re.sub(r"//[^\n]*", "", fixed)
     return json.loads(fixed)
+
+
+_SCALAR_FIELDS = {"supplier", "invoice_number", "date", "subtotal", "tax", "total"}
+
+
+def _flatten_result(result: dict) -> dict:
+    """
+    Flatten any scalar field that the LLM returned as a structured dict.
+
+    The LLM occasionally returns e.g. {"supplier": {"value": "Foo", "confidence": 95}}
+    instead of {"supplier": "Foo"}. This extracts the value and merges the
+    confidence into result["confidence"] so downstream code always sees plain scalars.
+    """
+    confidence = result.setdefault("confidence", {})
+    for field in _SCALAR_FIELDS:
+        val = result.get(field)
+        if isinstance(val, dict) and "value" in val:
+            result[field] = val["value"]
+            if "confidence" in val and field not in confidence:
+                confidence[field] = val["confidence"]
+    return result
 
 
 def _cross_validate_invoice_number(result: dict, ocr_parsed, header_ocr_text: str) -> dict:
@@ -1076,15 +1181,12 @@ def scan_invoice(image_bytes: bytes, mode: str = "normal", debug: bool = False) 
         ocr_image = remove_stripes(preprocessed)
         ocr_text = ocr_prepass(ocr_image)
 
+        # Optimize images before sending to GLM Vision — raw PNGs are too large
+        orig_b64, orig_media = _optimize_image_for_vision(original)
+        pre_b64, pre_media = _optimize_image_for_vision(preprocessed)
         images = [
-            {
-                "base64": _encode_image_base64(original),
-                "media_type": "image/png",
-            },
-            {
-                "base64": _encode_image_base64(preprocessed),
-                "media_type": "image/png",
-            },
+            {"base64": orig_b64, "media_type": orig_media},
+            {"base64": pre_b64, "media_type": pre_media},
         ]
 
         # Step 1b: ROI segmentation (layout-aware when supplier is known)

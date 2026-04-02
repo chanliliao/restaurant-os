@@ -547,6 +547,11 @@ You receive multiple image variants:
 - IMPORTANT: Not every row has all columns filled. If a cell is empty or you
   cannot read it, use null — do NOT invent a number.
 - Some invoices only show the line total without a unit price — that is normal.
+- "unit" means unit of measure ONLY (e.g. CS, EA, BTL, GAL, LB, OZ, CAN).
+  Do NOT put item codes, UPC codes, slot numbers, or operator codes in "unit".
+- When an invoice has both EACH PRICE and UNIT PRICE columns, use UNIT PRICE
+  (the per-case/per-unit extended price that multiplies with qty to equal AMOUNT).
+  Use the AMOUNT column directly for "total" — do NOT recompute qty × each_price.
 
 ### Step 3: Read the totals
 - Find subtotal, tax, and grand total at the bottom.
