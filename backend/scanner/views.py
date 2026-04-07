@@ -16,7 +16,7 @@ from scanner.memory import (
 from scanner.serializers import ScanRequestSerializer, ConfirmRequestSerializer
 from scanner.scanning.engine import scan_invoice
 from scanner.tracking.accuracy import record_scan_accuracy, get_accuracy_stats
-from scanner.tracking.api_usage import record_api_usage, get_usage_stats, get_gemini_quota
+from scanner.tracking.api_usage import record_api_usage, get_usage_stats
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +38,12 @@ def scan_invoice_view(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    mode = serializer.validated_data.get("mode", "normal")
     debug = request.query_params.get("debug", "").lower() in ("1", "true")
     image_file = serializer.validated_data["image"]
 
     try:
         image_bytes = image_file.read()
-        result = scan_invoice(image_bytes, mode=mode, debug=debug)
+        result = scan_invoice(image_bytes, debug=debug)
 
         # If the engine returned an error, still return 200 with error in metadata
         # so the frontend can display partial results or error info
@@ -155,7 +154,3 @@ def stats_view(request):
     })
 
 
-@api_view(["GET"])
-def quota_view(request):
-    """Return Gemini free tier quota status for light mode."""
-    return Response(get_gemini_quota())

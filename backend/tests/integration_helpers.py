@@ -4,7 +4,6 @@ Helpers for integration tests.
 Provides:
 - make_receipt_image_bytes(): synthetic PIL image as PNG bytes
 - make_claude_response(): builds a JSON string matching engine expectations
-- make_gemini_light_side_effects(): list of mock responses for _scan_light's _call_gemini calls
 """
 
 import io
@@ -21,7 +20,7 @@ def make_receipt_image_bytes(
     """Create a synthetic receipt-like PNG image.
 
     Draws white background with black text lines. Does not require
-    Tesseract to parse -- used only to feed the pipeline's image-open step.
+    any OCR engine to parse -- used only to feed the pipeline's image-open step.
 
     Args:
         text_lines: Lines of text to draw. Defaults to a generic receipt.
@@ -71,9 +70,9 @@ def make_claude_response(
     confidence_override: dict | None = None,
     inference_sources_override: dict | None = None,
 ) -> str:
-    """Build a JSON string matching the schema scan_invoice() expects from Claude.
+    """Build a JSON string matching the schema scan_invoice() expects from the GLM model.
 
-    This is used as the return value of the mocked _call_claude().
+    This is used as the return value of mocked _call_glm_vision().
 
     Args:
         supplier: Supplier name.
@@ -143,69 +142,3 @@ def make_claude_response(
         "inference_sources": inference_sources,
     }
     return json.dumps(payload)
-
-
-def make_gemini_light_side_effects(
-    supplier: str = "Fresh Foods Inc.",
-    date: str = "2026-03-15",
-    invoice_number: str = "INV-1234",
-    items: list[dict] | None = None,
-    subtotal: float = 21.50,
-    tax: float = 2.15,
-    total: float = 23.65,
-) -> list[str]:
-    """Return JSON strings for mocking _call_gemini in _scan_light.
-
-    The new GLM-OCR-first light mode calls _call_gemini only 1-2 times:
-      1. Smart pass (always)
-      2. Verification pass (conditional, if readable:false fields found)
-
-    Returns 5 identical responses so tests work regardless of whether
-    the verification pass fires.  All responses use the same "universal"
-    JSON so every parsing step finds the keys it needs.
-    """
-    if items is None:
-        items = [
-            {
-                "name": "Organic Tomatoes",
-                "quantity": 5,
-                "unit": "kg",
-                "unit_price": 3.50,
-                "total": 17.50,
-                "confidence": 92,
-            },
-            {
-                "name": "Fresh Basil",
-                "quantity": 2,
-                "unit": "bunch",
-                "unit_price": 2.00,
-                "total": 4.00,
-                "confidence": 88,
-            },
-        ]
-
-    universal = json.dumps({
-        # Description call
-        "description": f"{supplier} invoice {invoice_number} dated {date}",
-        # Header fields
-        "supplier": supplier,
-        "invoice_number": invoice_number,
-        "date": date,
-        "readable": {"supplier": True, "invoice_number": True, "date": True},
-        # Items/totals fields
-        "items": items,
-        "subtotal": subtotal,
-        "tax": tax,
-        "total": total,
-        # Confidence + sources (high confidence prevents retry)
-        "confidence": {
-            "supplier": 95, "date": 90, "invoice_number": 85,
-            "subtotal": 88, "tax": 80, "total": 92,
-        },
-        "inference_sources": {
-            "supplier": "scanned", "date": "scanned",
-            "invoice_number": "scanned", "subtotal": "scanned",
-            "tax": "scanned", "total": "scanned",
-        },
-    })
-    return [universal] * 5

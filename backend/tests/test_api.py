@@ -24,12 +24,12 @@ class TestScanEndpoint(TestCase):
 
     def test_scan_endpoint_returns_200(self):
         image = self._create_test_image()
-        response = self.client.post("/api/scan/", {"image": image, "mode": "normal"}, format="multipart")
+        response = self.client.post("/api/scan/", {"image": image}, format="multipart")
         self.assertEqual(response.status_code, 200)
 
     def test_scan_endpoint_returns_expected_json_structure(self):
         image = self._create_test_image()
-        response = self.client.post("/api/scan/", {"image": image, "mode": "normal"}, format="multipart")
+        response = self.client.post("/api/scan/", {"image": image}, format="multipart")
         data = response.json()
         self.assertIn("supplier", data)
         self.assertIn("date", data)
@@ -42,26 +42,9 @@ class TestScanEndpoint(TestCase):
         self.assertIn("inference_sources", data)
         self.assertIn("scan_metadata", data)
 
-    def test_scan_metadata_contains_mode(self):
-        image = self._create_test_image()
-        response = self.client.post("/api/scan/", {"image": image, "mode": "heavy"}, format="multipart")
-        data = response.json()
-        self.assertEqual(data["scan_metadata"]["mode"], "heavy")
-
     def test_scan_endpoint_rejects_no_image(self):
-        response = self.client.post("/api/scan/", {"mode": "normal"}, format="multipart")
+        response = self.client.post("/api/scan/", {}, format="multipart")
         self.assertEqual(response.status_code, 400)
-
-    def test_scan_endpoint_rejects_invalid_mode(self):
-        image = self._create_test_image()
-        response = self.client.post("/api/scan/", {"image": image, "mode": "turbo"}, format="multipart")
-        self.assertEqual(response.status_code, 400)
-
-    def test_scan_endpoint_defaults_mode_to_normal(self):
-        image = self._create_test_image()
-        response = self.client.post("/api/scan/", {"image": image}, format="multipart")
-        data = response.json()
-        self.assertEqual(data["scan_metadata"]["mode"], "normal")
 
 
 class TestConfirmEndpoint(TestCase):
@@ -78,7 +61,7 @@ class TestConfirmEndpoint(TestCase):
                 "total": 110.0,
                 "confidence": {},
                 "inference_sources": {},
-                "scan_metadata": {"mode": "normal"},
+                "scan_metadata": {},
             },
             "corrections": [
                 {
@@ -167,7 +150,7 @@ class TestConfirmUpdatesMemory(TestCase):
             "total": 112.31,
             "confidence": {},
             "inference_sources": {},
-            "scan_metadata": {"mode": "normal"},
+            "scan_metadata": {},
         }
 
     def tearDown(self):
