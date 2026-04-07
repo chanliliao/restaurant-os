@@ -1,21 +1,18 @@
-"""Tests for the three-tier inference engine."""
+"""Tests for the two-tier inference engine (Tier 1: supplier, Tier 2: industry)."""
 
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import anthropic
 import pytest
 
 from scanner.memory import JsonGeneralMemory, JsonSupplierMemory
 from scanner.memory.inference import (
     INFERABLE_FIELDS,
-    _build_tier3_prompt,
     _tier1_supplier,
     _tier1_supplier_item,
     _tier2_industry,
     _tier2_industry_item,
-    _tier3_ai,
     infer_field,
     run_inference,
 )
@@ -220,102 +217,7 @@ class TestTier2IndustryItem:
         assert updates == {}
 
 
-# --- Tier 3: AI Reasoning ---
-
-
-class TestTier3AI:
-    @patch("scanner.memory.inference.anthropic.Anthropic")
-    def test_calls_claude_and_parses_response(self, mock_anthropic_cls):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='{"value": 53.89, "reasoning": "subtotal + tax"}')]
-        mock_client.messages.create.return_value = mock_response
-
-        result = _tier3_ai("total", {"subtotal": 49.90, "tax": 3.99, "items": []})
-        assert result is not None
-        assert result["value"] == 53.89
-        assert result["source"] == "tier3_ai"
-        assert result["confidence"] == 50
-
-        # Verify Claude was called with Sonnet
-        call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs["model"] == "claude-sonnet-4-20250514"
-        assert call_kwargs.kwargs["max_tokens"] == 256
-
-    @patch("scanner.memory.inference.anthropic.Anthropic")
-    def test_returns_none_when_ai_says_null(self, mock_anthropic_cls):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text='{"value": null, "reasoning": "insufficient context"}'
-        )]
-        mock_client.messages.create.return_value = mock_response
-
-        result = _tier3_ai("invoice_number", {"items": []})
-        assert result is None
-
-    @patch("scanner.memory.inference.anthropic.Anthropic")
-    def test_returns_none_on_api_error(self, mock_anthropic_cls):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_client.messages.create.side_effect = anthropic.APIError(
-            message="rate limit",
-            request=MagicMock(),
-            body=None,
-        )
-
-        result = _tier3_ai("total", {"items": []})
-        assert result is None
-
-    @patch("scanner.memory.inference.anthropic.Anthropic")
-    def test_returns_none_on_bad_json(self, mock_anthropic_cls):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="I don't know")]
-        mock_client.messages.create.return_value = mock_response
-
-        result = _tier3_ai("total", {"items": []})
-        assert result is None
-
-    @patch("scanner.memory.inference.anthropic.Anthropic")
-    def test_handles_markdown_fenced_response(self, mock_anthropic_cls):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text='```json\n{"value": 10.50, "reasoning": "estimated tax"}\n```'
-        )]
-        mock_client.messages.create.return_value = mock_response
-
-        result = _tier3_ai("tax", {"subtotal": 100.0, "items": []})
-        assert result is not None
-        assert result["value"] == 10.50
-
-
-# --- Prompt Building ---
-
-
-class TestBuildTier3Prompt:
-    def test_includes_field_name(self):
-        prompt = _build_tier3_prompt("total", {"items": []})
-        assert "total" in prompt
-
-    def test_includes_context_fields(self):
-        scan = {"subtotal": 49.90, "tax": 3.99, "items": []}
-        prompt = _build_tier3_prompt("total", scan)
-        assert "49.9" in prompt
-        assert "3.99" in prompt
-
-    def test_includes_item_summary(self):
-        scan = {"items": [{"name": "Chicken", "quantity": 5, "unit_price": 4.99}]}
-        prompt = _build_tier3_prompt("total", scan)
-        assert "Chicken" in prompt
-
-
-# --- infer_field (full three-tier cascade) ---
+# --- infer_field (two-tier cascade) ---
 
 
 class TestInferField:
@@ -331,22 +233,8 @@ class TestInferField:
                              supplier_mem, populated_general)
         assert result["source"] == "tier2_industry"
 
-    @patch("scanner.memory.inference._tier3_ai")
-    def test_falls_through_to_tier3(self, mock_tier3, supplier_mem, general_mem):
-        """No local data at all — should try tier 3."""
-        mock_tier3.return_value = {
-            "value": "INV-999",
-            "source": "tier3_ai",
-            "confidence": 50,
-        }
-        result = infer_field("invoice_number", {}, "new-supplier",
-                             supplier_mem, general_mem)
-        assert result["source"] == "tier3_ai"
-        assert result["value"] == "INV-999"
-
-    @patch("scanner.memory.inference._tier3_ai")
-    def test_returns_none_when_all_tiers_fail(self, mock_tier3, supplier_mem, general_mem):
-        mock_tier3.return_value = None
+    def test_returns_none_result_when_both_tiers_fail(self, supplier_mem, general_mem):
+        """No local data at all — both tiers fail, returns null result."""
         result = infer_field("invoice_number", {}, "new-supplier",
                              supplier_mem, general_mem)
         assert result["value"] is None
@@ -399,22 +287,6 @@ class TestRunInference:
         # Supplier has historical value "INV-001"
         assert result["invoice_number"] == "INV-001"
         assert result["inference_sources"]["invoice_number"] == "tier1_supplier"
-
-    @patch("scanner.memory.inference._tier3_ai")
-    def test_uses_tier3_when_no_local_data(self, mock_tier3, base_scan_result,
-                                            supplier_mem, general_mem):
-        """New supplier, empty general memory — tier 3 for non-tax fields."""
-        mock_tier3.return_value = {
-            "value": 53.89,
-            "source": "tier3_ai",
-            "confidence": 50,
-        }
-
-        result = run_inference(base_scan_result, "new-supplier",
-                               supplier_mem, general_mem)
-
-        # At least some tier 3 calls should have been made
-        assert mock_tier3.called
 
     def test_tracks_metadata(self, base_scan_result, populated_supplier,
                               populated_general):
