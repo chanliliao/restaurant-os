@@ -1,0 +1,49 @@
+{
+  "supplier_id": "test-supplier",
+  "name": "Test Supplier",
+  "scan_count": 9,
+  "latest_values": {
+    "supplier": "Test Supplier",
+    "invoice_number": "INV-001",
+    "date": "2026-01-01"
+  },
+  "item_history": {},
+  "corrections": [
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    },
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    },
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    },
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    },
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    },
+    {
+      "field": "supplier",
+      "original_value": "Test Supplir",
+      "corrected_value": "Test Supplier",
+      "error_type": "misread"
+    }
+  ]
+}
