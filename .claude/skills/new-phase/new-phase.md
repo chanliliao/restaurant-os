@@ -32,6 +32,12 @@ Invoke `superpowers:brainstorming` to design the feature. Do NOT skip this step.
 Invoke `superpowers:writing-plans` to produce a step-by-step plan. Save to:
 `docs/superpowers/plans/YYYY-MM-DD-phase-NN-<name>.md`
 
+**Gate: before proceeding to Step 6, confirm the plan file exists:**
+```bash
+ls docs/superpowers/plans/ | grep "phase-NN"
+```
+Do not begin implementation until the plan file is saved and visible on disk.
+
 ### Step 6: Implement with TDD
 Invoke `superpowers:test-driven-development`.
 

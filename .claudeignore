@@ -1,0 +1,31 @@
+# Python
+backend/venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.egg-info/
+**/.pytest_cache/
+
+# Runtime data (JSON store — large, changes frequently)
+backend/data/
+
+# Test scratch files
+backend/z_test_files/
+
+# Lock files
+*.lock
+poetry.lock
+Pipfile.lock
+
+# Docs that are too large to need auto-loading
+docs/superpowers/
+
+# Git internals
+.git/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+**/.idea/
+**/.vscode/

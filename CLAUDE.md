@@ -41,6 +41,18 @@ See `docs/ARCHITECTURE.md` for the full system overview, data flow, component br
 
 ---
 
+## Documentation
+
+Key project docs live in `docs/`:
+
+- `docs/ARCHITECTURE.md` — system overview, data flow, component breakdown, and API reference
+- `docs/CHANGELOG.md` — history of changes by phase
+- `docs/PROJECT_STATUS.md` — current project status, completed phases, and what's next
+- `docs/superpowers/plans/` — phase implementation plans (named `YYYY-MM-DD-phase-NN-<name>.md`)
+- `docs/superpowers/specs/` — design specs and feature specifications
+
+---
+
 ## Rules
 
 Project coding standards and workflow gates are defined in the following rule files:
