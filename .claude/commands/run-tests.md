@@ -1,0 +1,15 @@
+# Run Tests
+
+Run the full SmartScanner test suite:
+
+```bash
+cd backend && python -m pytest -v 2>&1
+```
+
+- Zero failures required before any commit or push.
+- All GLM API calls are mocked — tests do not hit real endpoints.
+- To run a single test file: `pytest tests/test_scanning.py -v`
+- To run a single test: `pytest tests/test_scanning.py::TestClass::test_name -v`
+- To filter by keyword: `pytest -k "test_ocr_fast_path" -v`
+
+`pytest.ini` sets `DJANGO_SETTINGS_MODULE = smartscanner.settings` — no env var needed.
