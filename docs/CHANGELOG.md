@@ -4,6 +4,22 @@ All notable changes to SmartScanner are documented here, organized by phase and 
 
 ---
 
+## [Tooling] — 2026-04-08 — .claude Project Structure
+
+### Added
+- `.claude/rules/coding-standards.md` — tech stack, code quality, constraints, and security rules extracted from `CLAUDE.md`
+- `.claude/rules/workflow-gates.md` — phase gates, commit conventions, test requirements, and PR rules extracted from `CLAUDE.md`
+- `.claude/commands/` — 6 slash commands: `/phase` (new phase workflow), `/scan` (end-to-end scan test), `/debug` (pipeline debugger), `/activate-venv`, `/run-tests`, `/check-logs`
+- `.claude/skills/new-phase/new-phase.md` — full phase lifecycle skill (research → brainstorm → plan → TDD → gate check → docs → PR)
+- `.claude/skills/scan-test/scan-test.md` — end-to-end scan validation skill with field-level pass/fail reporting
+- `.claude/skills/debug-scan/debug-scan.md` — systematic pipeline-stage debugging skill using hypothesis/test/fix loop
+- `.claude/agents/changelog-updater.md` — subagent that reads git history and existing changelog format, classifies changes, and writes precise entries to `docs/CHANGELOG.md`
+
+### Changed
+- `CLAUDE.md` slimmed from 120 → 50 lines; inline rule sections replaced with `@.claude/rules/` imports
+
+---
+
 ## [Phase 22] — 2026-04-02 to 2026-04-07 — Targeted OCR Pipeline
 
 ### Added
