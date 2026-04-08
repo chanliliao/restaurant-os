@@ -330,6 +330,19 @@ backend/
 
 ---
 
+## Tests (`tests/`)
+
+All tests mock external HTTP (GLM-OCR and GLM Vision) — patch `scanner.scanning.engine._call_glm_ocr` and `scanner.scanning.engine._call_glm_vision`. Never let tests hit real endpoints.
+
+| File | Purpose |
+|------|---------|
+| `test_integration.py` | Full `scan_invoice()` pipeline end-to-end with mocked responses |
+| `integration_helpers.py` | Shared fixture builders and mock patches |
+
+No DB migrations needed — SQLite is used only for Django's built-in auth/session tables; all scanner data is JSON files.
+
+---
+
 ## Key Design Decisions
 
 | Decision | Rationale |

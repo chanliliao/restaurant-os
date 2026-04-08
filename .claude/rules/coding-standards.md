@@ -3,6 +3,7 @@
 ## Tech Stack
 
 **Backend (current):**
+
 - Python 3.11+
 - Django 5.x + Django REST Framework
 - django-cors-headers
@@ -10,12 +11,6 @@
 - ZhipuAI GLM-OCR (`glm-ocr`) for structured text extraction
 - ZhipuAI GLM-4.6V-Flash (`glm-4.6v-flash`) for vision LLM calls
 - JSON files for all scanner data storage; SQLite for Django internals only
-
-**Frontend (removed — for reference if reintroduced):**
-- React 18 + TypeScript (strict mode)
-- Vite as build tool
-- Axios for API calls
-- Plain CSS / CSS Modules for styling
 
 ## Code Quality
 
