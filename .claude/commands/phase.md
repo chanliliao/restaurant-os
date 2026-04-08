@@ -8,7 +8,7 @@ You are starting a new SmartScanner feature phase. Follow this workflow exactly:
 4. **Invoke brainstorming** — use the `superpowers:brainstorming` skill to design the feature. Do not skip this step.
 5. **Invoke writing-plans** — use the `superpowers:writing-plans` skill to produce a step-by-step implementation plan saved to `docs/superpowers/plans/YYYY-MM-DD-phase-NN-<name>.md`.
 6. **Implement with TDD** — use `superpowers:test-driven-development`. Mock all GLM calls: patch `scanner.scanning.engine._call_glm_ocr` and `scanner.scanning.engine._call_glm_vision`.
-7. **Run tests** — `cd backend && pytest`. Zero failures required before proceeding.
+7. **Run tests** — `cd backend && python -m pytest`. Zero failures required before proceeding.
 8. **Update docs** — update `docs/ARCHITECTURE.md` and `docs/CHANGELOG.md`.
 9. **Commit and push** — use `feat(phase-NN):` prefix. Create a PR.
 
