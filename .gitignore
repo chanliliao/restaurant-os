@@ -25,12 +25,16 @@ db.sqlite3-journal
 .env.production
 
 # Data directory (persistent storage, not code)
-backend/data/general/*.json
-backend/data/suppliers/*.json
-backend/data/stats/*.json
+backend/data/**
 !backend/data/general/.gitkeep
 !backend/data/suppliers/.gitkeep
 !backend/data/stats/.gitkeep
+
+# Test invoice images (not for source control)
+backend/z_test_files/
+
+# Stray root-level data directory
+data/
 
 # Node
 node_modules/

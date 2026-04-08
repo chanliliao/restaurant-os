@@ -4,6 +4,27 @@ All notable changes to SmartScanner are documented here, organized by phase and 
 
 ---
 
+## [Tooling] — 2026-04-08 — Claude Folder Structure Hardening
+
+### Added
+- `/push-pr` command and `push-and-pr` skill: guides push + PR creation with pre-flight checks (pytest gate, branch naming validation, `backend/data/` guard, and PR body template)
+- `docs/PROJECT_STATUS.md` — snapshot of current project health, phase progress, and known gaps
+- `docs/RETRO.md` — retrospective log initialized with Lens 5 (Claude behavior audit) added to the retro-agent
+- `~/.claude/CLAUDE.md` (user-level) — universal commit, PR, and security rules moved out of project-level rules so they apply across all Claude Code sessions
+
+### Changed
+- `coding-standards.md` — restored "No inline secrets" constraint with SmartScanner-specific key names (`GLM_OCR_API_KEY`, `DJANGO_SECRET_KEY`); restored multi-worker Gunicorn deployment warning; restored GLM provider-switching reminder (update both `engine.py` and `api_usage.py` when switching models); added conditional TypeScript rule (applies if frontend returns)
+- `workflow-gates.md` — restored full PR requirements block; added superpowers skills note to Phase Gates section; added "Rule File Maintenance" section (prohibits trimming substantive constraints without replacing them); added `backend/data/` pre-`git add` guard to Commits section
+- `new-phase` skill — Step 5 now verifies plan file exists on disk before any implementation begins
+- `check-logs.md` command — removed false expectation of log files; logging is console-only by default
+- `CLAUDE.md` — added `docs/` section listing key documentation files
+
+### Fixed
+- `.gitignore` — `backend/data/**` now covers nested paths recursively (previously only `backend/data/*.json` at top level was excluded); added `backend/z_test_files/` and root `data/` exclusions
+- `backend/data/suppliers/test-supplier/profile.json` removed from git tracking via `git rm --cached` (was accidentally committed)
+
+---
+
 ## [Tooling] — 2026-04-08 — commit-push Changelog Integration
 
 ### Changed
