@@ -43,5 +43,7 @@ See `docs/ARCHITECTURE.md` for the full system overview, data flow, component br
 
 ## Rules
 
+Project coding standards and workflow gates are defined in the following rule files:
+
 @.claude/rules/coding-standards.md
 @.claude/rules/workflow-gates.md
