@@ -18,7 +18,17 @@ cd backend && python -m pytest
 
 If any test fails, **stop here**. Fix the failures before proceeding.
 
-### Step 2: Review What Changed
+### Step 2: Update the Changelog
+
+Invoke the `changelog-updater` agent to write an accurate entry to `docs/CHANGELOG.md` before staging anything:
+
+```
+Use the Agent tool with subagent_type="changelog-updater"
+```
+
+The agent will read recent git history, classify the changes, and insert a properly formatted entry. Do not skip this step — the changelog must be updated before the commit so the entry is included in the same commit.
+
+### Step 3: Review What Changed
 
 ```bash
 git status
@@ -27,7 +37,7 @@ git diff
 
 Identify every modified, added, or deleted file. Understand the scope before staging.
 
-### Step 3: Stage Selectively
+### Step 4: Stage Selectively
 
 Never use `git add -A` or `git add .`. Stage only intentional changes:
 
@@ -41,7 +51,7 @@ git add <specific files>
 - `backend/.env` — secrets
 - `*.pyc` / `__pycache__/` — compiled bytecode
 
-### Step 4: Write the Commit Message
+### Step 5: Write the Commit Message
 
 Follow conventional commit format:
 
@@ -69,7 +79,7 @@ EOF
 )"
 ```
 
-### Step 5: Push
+### Step 6: Push
 
 Push to the current feature branch — **never directly to `master`**:
 
@@ -83,7 +93,7 @@ If the branch has no upstream yet:
 git push -u origin <current-branch>
 ```
 
-### Step 6: Open a PR (if not already open)
+### Step 7: Open a PR (if not already open)
 
 ```bash
 gh pr create --title "<conventional commit title>" --body "$(cat <<'EOF'
