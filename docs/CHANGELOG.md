@@ -4,6 +4,14 @@ All notable changes to SmartScanner are documented here, organized by phase and 
 
 ---
 
+## [Tooling] — 2026-04-08 — commit-push Changelog Integration
+
+### Changed
+- `.claude/commands/commit-push.md` — added Step 2 "Update the changelog" that invokes the `changelog-updater` agent before staging; renumbered subsequent steps
+- `.claude/skills/commit-push/commit-push.md` — added Step 2 "Update the Changelog" section with `changelog-updater` agent invocation; renumbered Steps 3–7 accordingly
+
+---
+
 ## [Tooling] — 2026-04-08 — .claude Project Structure
 
 ### Added
