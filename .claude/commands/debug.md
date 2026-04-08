@@ -12,6 +12,6 @@ You are debugging a bad scan result. Follow this systematic workflow:
 3. **Isolate the failing stage** — identify which stage first produced bad output.
 4. **Form a hypothesis** — state the specific cause (e.g., "GLM-OCR returned empty text because image was too dark").
 5. **Test the hypothesis** — write a focused test or add logging to confirm.
-6. **Fix and verify** — implement the fix, run `cd backend && pytest`, confirm zero failures.
+6. **Fix and verify** — implement the fix, run `cd backend && python -m pytest`, confirm zero failures.
 
 @.claude/skills/debug-scan/debug-scan.md
