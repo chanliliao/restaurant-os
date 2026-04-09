@@ -1,6 +1,6 @@
 # Restaurant OS — Project Status
 
-_Last updated: 2026-04-09 (Restaurant OS rebrand)_
+_Last updated: 2026-04-09 (SmartScanner → Restaurant OS rename complete)_
 
 ---
 
@@ -50,6 +50,7 @@ _Last updated: 2026-04-09 (Restaurant OS rebrand)_
 | `retro-agent` + `/retro` command | 2026-04-08 | Retrospective agent — audits workflow, proposes CLAUDE.md changes and new skills, writes `docs/RETRO.md` |
 | Claude Folder Structure Hardening | 2026-04-08 | Retro findings applied: rule file fixes, `/push-pr` command + skill, plan-file gate in `/phase`, `.gitignore` recursive data coverage, user-level `~/.claude/CLAUDE.md` |
 | Restaurant OS Rebrand | 2026-04-09 | Renamed `backend/src/platemind/` → `backend/src/restaurant_os/`; updated all imports, docs, skills |
+| SmartScanner → Restaurant OS Rename | 2026-04-09 | Replaced all SmartScanner references across 42 files; GitHub repo renamed to `restaurant-os` |
 
 ---
 

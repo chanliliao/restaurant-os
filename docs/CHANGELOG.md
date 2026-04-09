@@ -4,6 +4,16 @@ All notable changes to Restaurant OS are documented here, organized by phase and
 
 ---
 
+## [Tooling] — 2026-04-09 — SmartScanner → Restaurant OS Rebrand
+
+### Changed
+- Renamed all `SmartScanner`/`smartscanner` references to `Restaurant OS`/`restaurant-os` across 42 files: `CLAUDE.md`, all `.claude/` commands, skills, and agents, all backend source files, and all docs
+- GitHub repository renamed from `SmartScanner` to `restaurant-os`; local remote updated automatically
+
+No logic changes — pure rename/rebrand on branch `chore/claude-folder-structure`.
+
+---
+
 ## [Tooling] — 2026-04-09 — PlateMind → Restaurant OS Rebrand
 
 ### Changed
