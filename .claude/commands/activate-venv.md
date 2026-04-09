@@ -1,6 +1,6 @@
 # Activate Virtual Environment
 
-Run the following to activate the SmartScanner backend virtual environment and confirm it is working:
+Run the following to activate the Restaurant OS backend virtual environment and confirm it is working:
 
 ```bash
 source backend/venv/Scripts/activate && python --version && python -c "import django; print('Django', django.__version__)"

@@ -19,7 +19,7 @@ class InvoiceLineItem(BaseModel):
     A single line item extracted from an invoice.
 
     Fields map directly to what GLM-OCR returns; confidence scores are integers 0–100
-    using the same tier convention as SmartScanner (80 = supplier memory hit,
+    using the same tier convention as Restaurant OS (80 = supplier memory hit,
     60 = industry memory, < 60 = raw extraction).
 
     """

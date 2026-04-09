@@ -1,6 +1,6 @@
-# Start Lesson — SmartScanner → Restaurant OS Migration
+# Start Lesson — Restaurant OS Migration
 
-You are executing lesson **$ARGUMENTS** of the SmartScanner → Restaurant OS migration.
+You are executing lesson **$ARGUMENTS** of the Restaurant OS migration.
 
 Follow the start-lesson skill exactly for lesson $ARGUMENTS.
 

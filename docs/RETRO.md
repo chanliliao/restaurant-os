@@ -13,7 +13,7 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ## 1. CLAUDE.md Proposed Changes
 
 ### Option 1 — Restore deleted "No inline secrets" rule to coding-standards.md
-**Target:** `.claude/rules/coding-standards.md` (SmartScanner-specific)
+**Target:** `.claude/rules/coding-standards.md` (Restaurant OS-specific)
 **Why:** The working-tree version of `coding-standards.md` removed "No inline secrets. API keys and secrets go in `.env` only, never hardcoded." from the Code Quality section. This was moved to the user-level `~/.claude/CLAUDE.md`, but the project-level file should still carry it as a project-specific reminder, especially since `GLM_OCR_API_KEY` is the specific key that must stay out of code.
 
 **Proposed change:**
@@ -28,8 +28,8 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ---
 
 ### Option 2 — Restore the multi-worker deployment caveat to coding-standards.md
-**Target:** `.claude/rules/coding-standards.md` (SmartScanner-specific)
-**Why:** The working-tree diff shows "Do not deploy with multiple Gunicorn workers without replacing the storage layer." was removed from the multi-process file safety constraint. This is an important operational guardrail unique to SmartScanner — it belongs in the project rules. Without it, a future Claude session could set up a production deployment with multiple workers and corrupt JSON data.
+**Target:** `.claude/rules/coding-standards.md` (Restaurant OS-specific)
+**Why:** The working-tree diff shows "Do not deploy with multiple Gunicorn workers without replacing the storage layer." was removed from the multi-process file safety constraint. This is an important operational guardrail unique to Restaurant OS — it belongs in the project rules. Without it, a future Claude session could set up a production deployment with multiple workers and corrupt JSON data.
 
 **Proposed change:**
 ```diff
@@ -40,8 +40,8 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ---
 
 ### Option 3 — Restore deleted PR requirements from workflow-gates.md
-**Target:** `.claude/rules/workflow-gates.md` (SmartScanner-specific)
-**Why:** The working-tree diff shows three lines were deleted from the Commits and Pull Requests sections: "Write clear commit messages...", "Keep commits focused...", and the full PR requirements block ("Create a PR for all changes going to `master`...", "Never force-push to `master`...", "PR descriptions must include..."). These were removed because they now live in `~/.claude/CLAUDE.md` at the user level. However, the project-level file should retain the SmartScanner-specific context — specifically the master-branch protection rule and PR description requirements, since user-level CLAUDE.md uses generic language while the project has a specific master branch.
+**Target:** `.claude/rules/workflow-gates.md` (Restaurant OS-specific)
+**Why:** The working-tree diff shows three lines were deleted from the Commits and Pull Requests sections: "Write clear commit messages...", "Keep commits focused...", and the full PR requirements block ("Create a PR for all changes going to `master`...", "Never force-push to `master`...", "PR descriptions must include..."). These were removed because they now live in `~/.claude/CLAUDE.md` at the user level. However, the project-level file should retain the Restaurant OS-specific context — specifically the master-branch protection rule and PR description requirements, since user-level CLAUDE.md uses generic language while the project has a specific master branch.
 
 **Proposed change:**
 ```diff
@@ -56,7 +56,7 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ---
 
 ### Option 4 — Add GLM provider-switching warning back to coding-standards.md
-**Target:** `.claude/rules/coding-standards.md` (SmartScanner-specific)
+**Target:** `.claude/rules/coding-standards.md` (Restaurant OS-specific)
 **Why:** The working-tree version shortened the GLM models constraint by removing "Do not reintroduce other providers without updating `engine.py` and `api_usage.py`." This is actionable guidance that prevents a specific mistake (adding a new provider and forgetting to update tracking) — it should be retained.
 
 **Proposed change:**
@@ -68,7 +68,7 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ---
 
 ### Option 5 — Add TypeScript guidance back to coding-standards.md (conditional form)
-**Target:** `.claude/rules/coding-standards.md` (SmartScanner-specific)
+**Target:** `.claude/rules/coding-standards.md` (Restaurant OS-specific)
 **Why:** The working-tree diff removed the TypeScript rule entirely. The frontend was removed in Phase 22, but the project status document lists "New frontend" as a potential next step. The `workflow-gates.md` already has a conditional frontend gate (`If a frontend exists: run npm run lint...`). The coding standards should match — keep the rule but make it conditional.
 
 **Proposed change:**
@@ -89,7 +89,7 @@ Audited both levels of CLAUDE.md, all four rule files, four skills, eight comman
 ---
 
 ### Option 7 — Add `superpowers:writing-plans` note to workflow-gates.md
-**Target:** `.claude/rules/workflow-gates.md` (SmartScanner-specific)
+**Target:** `.claude/rules/workflow-gates.md` (Restaurant OS-specific)
 **Why:** The Phase Gates section references `superpowers:writing-plans` by name but does not explain what it is or where it comes from. A new session might not know this is a Claude Code Superpowers skill. A one-line note prevents confusion.
 
 **Proposed change:**

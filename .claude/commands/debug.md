@@ -1,4 +1,4 @@
-# Debug Scan — SmartScanner
+# Debug Scan — Restaurant OS
 
 You are debugging a bad scan result. Follow this systematic workflow:
 

@@ -206,7 +206,7 @@ These technologies provide language model capabilities and external knowledge re
 - **Streaming**: Use `stream: true` in requests to receive reasoning tokens incrementally.
 - **Multimodal input**: GLM-4V-Flash accepts image URLs or base64-encoded image data alongside text; use for invoice analysis.
 - **Token limits**: GLM-4-Flash has 4K context; be mindful of token usage in long agent loops.
-- **Cost tracking**: Track API calls via LangSmith or custom logging; integrate with `api_usage.py` patterns from SmartScanner.
+- **Cost tracking**: Track API calls via LangSmith or custom logging; integrate with `api_usage.py` patterns from Restaurant OS.
 
 ### duckduckgo-search
 

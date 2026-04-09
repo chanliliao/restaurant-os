@@ -1,4 +1,4 @@
-# Debug Scan Skill — SmartScanner
+# Debug Scan Skill — Restaurant OS
 
 Systematic debugging for bad scan results using the scientific method.
 

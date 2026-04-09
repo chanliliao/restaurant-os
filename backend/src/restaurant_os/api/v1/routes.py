@@ -79,7 +79,7 @@ async def chat_stream(request: ChatRequest):
     """
     Accept a chat message and stream the agent's reasoning back via SSE.
 
-    This is the core Restaurant OS endpoint — no SmartScanner equivalent.
+    This is the core Restaurant OS endpoint — no Restaurant OS equivalent.
 
     Request body (JSON):
         message: str — the user's natural-language question or command.

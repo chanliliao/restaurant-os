@@ -1,4 +1,4 @@
-"""JSON file implementations for SmartScanner memory interfaces."""
+"""JSON file implementations for Restaurant OS memory interfaces."""
 
 import json
 import os

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to SmartScanner are documented here, organized by phase and date.
+All notable changes to Restaurant OS are documented here, organized by phase and date.
 
 ---
 
@@ -25,7 +25,7 @@ No logic changes — pure rename/rebrand on branch `chore/claude-folder-structur
 - `~/.claude/CLAUDE.md` (user-level) — universal commit, PR, and security rules moved out of project-level rules so they apply across all Claude Code sessions
 
 ### Changed
-- `coding-standards.md` — restored "No inline secrets" constraint with SmartScanner-specific key names (`GLM_OCR_API_KEY`, `DJANGO_SECRET_KEY`); restored multi-worker Gunicorn deployment warning; restored GLM provider-switching reminder (update both `engine.py` and `api_usage.py` when switching models); added conditional TypeScript rule (applies if frontend returns)
+- `coding-standards.md` — restored "No inline secrets" constraint with Restaurant OS-specific key names (`GLM_OCR_API_KEY`, `DJANGO_SECRET_KEY`); restored multi-worker Gunicorn deployment warning; restored GLM provider-switching reminder (update both `engine.py` and `api_usage.py` when switching models); added conditional TypeScript rule (applies if frontend returns)
 - `workflow-gates.md` — restored full PR requirements block; added superpowers skills note to Phase Gates section; added "Rule File Maintenance" section (prohibits trimming substantive constraints without replacing them); added `backend/data/` pre-`git add` guard to Commits section
 - `new-phase` skill — Step 5 now verifies plan file exists on disk before any implementation begins
 - `check-logs.md` command — removed false expectation of log files; logging is console-only by default
@@ -76,7 +76,7 @@ No logic changes — pure rename/rebrand on branch `chore/claude-folder-structur
 
 ### Deleted
 - React/TypeScript frontend (`frontend/`) — removed to focus on backend API
-- Legacy Django app structure: `smartscanner/__init__.py`, `asgi.py`, `wsgi.py`, `urls.py`, `settings.py` (consolidated then restored)
+- Legacy Django app structure: `restaurant-os/__init__.py`, `asgi.py`, `wsgi.py`, `urls.py`, `settings.py` (consolidated then restored)
 - `scanner/admin.py`, `scanner/models.py` — no ORM models needed
 - `scanner/scanning/comparator.py` — replaced by targeted crop logic in engine
 - `scanner/scanning/ocr.py` — replaced by `ocr_parser.py`
@@ -279,7 +279,7 @@ No logic changes — pure rename/rebrand on branch `chore/claude-folder-structur
 ## [Phase 01] — 2026-03-27 — Backend Scaffolding
 
 ### Added
-- Django 5 project: `smartscanner/` package with `settings.py`, `urls.py`, `wsgi.py`, `asgi.py`
+- Django 5 project: `restaurant-os/` package with `settings.py`, `urls.py`, `wsgi.py`, `asgi.py`
 - `scanner` Django app with subpackages: `preprocessing/`, `scanning/`, `memory/`, `tracking/`
 - `POST /api/scan/` placeholder endpoint with `ScanRequestSerializer`
 - `data/` directory structure with `.gitkeep` placeholders
@@ -291,6 +291,6 @@ No logic changes — pure rename/rebrand on branch `chore/claude-folder-structur
 ## [Design Spec] — 2026-03-26 — Project Foundation
 
 ### Added
-- SmartScanner design specification: full feature set, architecture, API contract, memory system design, and 17-phase implementation plan
+- Restaurant OS design specification: full feature set, architecture, API contract, memory system design, and 17-phase implementation plan
 - Decision: React + TypeScript frontend, Django REST Framework backend
 - Decision: JSON file storage for prototype; SQLite planned for production

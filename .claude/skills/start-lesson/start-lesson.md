@@ -1,9 +1,9 @@
 ---
 name: start-lesson
-description: Use when the user runs /start-lesson <N> to begin a SmartScanner→Restaurant OS migration lesson. Reads the lesson plan for lesson N and fully executes all migration work: deletions, directory creation, and complete working implementations of all new files.
+description: Use when the user runs /start-lesson <N> to begin a Restaurant OS→Restaurant OS migration lesson. Reads the lesson plan for lesson N and fully executes all migration work: deletions, directory creation, and complete working implementations of all new files.
 ---
 
-# Start Lesson — SmartScanner → Restaurant OS Migration
+# Start Lesson — Restaurant OS Migration
 
 Executes one lesson from `docs/analysis/lesson-plan.md` end-to-end: reads the plan, deletes deprecated files, creates new directories, and **writes complete, working code** for every new file — not stubs, not skeletons, not TODOs.
 
@@ -25,7 +25,7 @@ Extract before touching any file:
 
 Also read `docs/analysis/project-dir-scaffold.md` Section 2 for the target directory tree.
 
-For `[PORT]` actions, read the SmartScanner source file being ported before writing the target. Understand what it does so the port preserves the logic.
+For `[PORT]` actions, read the Restaurant OS source file being ported before writing the target. Understand what it does so the port preserves the logic.
 
 ### Step 2: Orient to Current State
 
@@ -63,7 +63,7 @@ For every `[NEW]`, `[NEW - REPLACE]`, and `[PORT]` target file — **write real,
 - Every function and class has a full implementation, not `pass`
 - All imports resolve correctly
 - The file does what the lesson says it does
-- For `[PORT]` files: the SmartScanner logic is preserved and adapted to the new stack (async, Pydantic v2, etc.)
+- For `[PORT]` files: the Restaurant OS logic is preserved and adapted to the new stack (async, Pydantic v2, etc.)
 - For `[NEW]` files: implements the feature as described in "What you'll build"
 - The checkpoint at the end of the lesson can be satisfied by running against this code
 

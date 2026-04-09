@@ -1,8 +1,8 @@
-# SmartScanner Design Spec
+# Restaurant OS Design Spec
 
 ## Overview
 
-SmartScanner is a web application with a React frontend and Python (Django REST) backend that uses Claude AI to extract structured data from restaurant receipt and invoice images. It is a specialty invoice scanning agent featuring:
+Restaurant OS is a web application with a React frontend and Python (Django REST) backend that uses Claude AI to extract structured data from restaurant receipt and invoice images. It is a specialty invoice scanning agent featuring:
 
 - Intelligent image preprocessing with auto-detect quality correction
 - Region-of-interest segmentation with supplier-aware layout mapping
@@ -333,12 +333,12 @@ Accuracy data stored in `data/stats/accuracy.json`. API usage stored in `data/st
 ## 12. Project Structure
 
 ```
-SmartScanner/
+Restaurant OS/
 ├── backend/                    # Python Django REST API
 │   ├── manage.py
 │   ├── requirements.txt
 │   ├── .env                    # ANTHROPIC_API_KEY
-│   ├── smartscanner/           # Django project settings
+│   ├── restaurant-os/           # Django project settings
 │   │   ├── settings.py
 │   │   ├── urls.py
 │   │   └── wsgi.py
@@ -432,7 +432,7 @@ SmartScanner/
 Each phase is a small, independent feature. Build it, test it, verify it works, then move on. Each phase starts in a **fresh context window** so the agent has clean context and reads the latest state of the codebase and this plan.
 
 ### GitHub Repository
-**Repo:** https://github.com/chanliliao/SmartScanner
+**Repo:** https://github.com/chanliliao/Restaurant OS
 **Remote:** origin (master branch)
 
 ### Workflow Per Phase
@@ -621,7 +621,7 @@ Phase 17:  [x] Complete — Integration testing + golden test set
 ### Phase 01: Backend Scaffolding (Django REST)
 **Goal:** Runnable Django REST API with empty app structure.
 **Build:**
-- `backend/` directory with `django-admin startproject smartscanner .`
+- `backend/` directory with `django-admin startproject restaurant-os .`
 - `python manage.py startapp scanner`
 - Install and configure Django REST Framework + django-cors-headers
 - Create all subdirectory packages: `preprocessing/`, `scanning/`, `memory/`, `tracking/`
@@ -633,7 +633,7 @@ Phase 17:  [x] Complete — Integration testing + golden test set
 - Create placeholder `POST /api/scan/` endpoint returning dummy JSON
 - Create `scanner/serializers.py` for DRF
 **Verify:** `python manage.py runserver` starts without errors. `curl POST /api/scan/` returns dummy JSON. All directories exist.
-**Files:** backend/manage.py, backend/smartscanner/*, backend/scanner/*, all subpackages, requirements.txt, .env, .gitignore
+**Files:** backend/manage.py, backend/restaurant-os/*, backend/scanner/*, all subpackages, requirements.txt, .env, .gitignore
 
 ---
 

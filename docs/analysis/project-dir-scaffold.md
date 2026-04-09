@@ -1,10 +1,10 @@
-# Project Directory Scaffold: SmartScanner → Restaurant OS
+# Project Directory Scaffold: Restaurant OS → Restaurant OS
 
-This document maps the current SmartScanner backend structure to the target Restaurant OS architecture, identifying which components port, which are new, and which are deferred to v1.0.
+This document maps the current Restaurant OS backend structure to the target Restaurant OS architecture, identifying which components port, which are new, and which are deferred to v1.0.
 
 ---
 
-## Section 1: Current App Structure (SmartScanner)
+## Section 1: Current App Structure (Restaurant OS)
 
 ```
 backend/
@@ -37,7 +37,7 @@ backend/
 │   ├── urls.py                  # URL routing (/api/v1/scan, /api/v1/status)
 │   └── serializers.py           # DRF serializers for request/response validation
 │
-├── smartscanner/
+├── restaurant-os/
 │   ├── settings.py              # Django configuration (SECRET_KEY, CORS, API keys from .env)
 │   ├── urls.py                  # Root URL config and app routing
 │   ├── wsgi.py                  # WSGI entry point for production
@@ -160,22 +160,22 @@ pyproject.toml                   # Python project config (ruff, pyright, pytest,
 | `backend/scanner/views.py` | `[NEW - REPLACE]` | Django views → `api/v1/routes.py` (FastAPI) |
 | `backend/scanner/serializers.py` | `[NEW - REPLACE]` | DRF serializers → `api/v1/schemas.py` (Pydantic) |
 | `backend/tests/*` | `[PORT]` | Test suite → `tests/agent_evals/` (agentic tests) + `tests/fixtures/` (mocks) |
-| `src/restaurant_os/agents/supervisor.py` | `[NEW]` | LangGraph single-node ReAct orchestrator (not in SmartScanner) |
+| `src/restaurant_os/agents/supervisor.py` | `[NEW]` | LangGraph single-node ReAct orchestrator (not in Restaurant OS) |
 | `src/restaurant_os/agents/scanner_agent.py` | `[NEW]` | Restaurant context-aware agent logic (evolution of engine.py) |
-| `src/restaurant_os/tools/registry.py` | `[NEW]` | Dynamic tool registration for LangGraph (not in SmartScanner) |
-| `src/restaurant_os/tools/supplier_scanner.py` | `[NEW]` | DuckDuckGo supplier lookup tool (not in SmartScanner) |
-| `src/restaurant_os/db/models.py` | `[NEW]` | SQLAlchemy ORM (not in SmartScanner; replaces JSON files) |
+| `src/restaurant_os/tools/registry.py` | `[NEW]` | Dynamic tool registration for LangGraph (not in Restaurant OS) |
+| `src/restaurant_os/tools/supplier_scanner.py` | `[NEW]` | DuckDuckGo supplier lookup tool (not in Restaurant OS) |
+| `src/restaurant_os/db/models.py` | `[NEW]` | SQLAlchemy ORM (not in Restaurant OS; replaces JSON files) |
 | `src/restaurant_os/db/repositories.py` | `[NEW]` | CRUD abstractions (refactored from json_store.py) |
-| `src/restaurant_os/db/vector.py` | `[NEW]` | pgvector HNSW operations (not in SmartScanner; new RAG capability) |
-| `src/restaurant_os/auth/clerk.py` | `[NEW]` | Clerk JWT verification (not in SmartScanner) |
-| `src/restaurant_os/core/config.py` | `[NEW]` | Settings management via Pydantic (not in SmartScanner) |
-| `src/restaurant_os/observability/reasoning_logger.py` | `[NEW]` | Structured trace logging for agentic runs (not in SmartScanner) |
-| `src/restaurant_os/tasks/celery_app.py` | `[NEW]` | Background task queue (not in SmartScanner; added for scalability) |
-| `docker-compose.yml` | `[NEW]` | Multi-container orchestration (not in SmartScanner) |
+| `src/restaurant_os/db/vector.py` | `[NEW]` | pgvector HNSW operations (not in Restaurant OS; new RAG capability) |
+| `src/restaurant_os/auth/clerk.py` | `[NEW]` | Clerk JWT verification (not in Restaurant OS) |
+| `src/restaurant_os/core/config.py` | `[NEW]` | Settings management via Pydantic (not in Restaurant OS) |
+| `src/restaurant_os/observability/reasoning_logger.py` | `[NEW]` | Structured trace logging for agentic runs (not in Restaurant OS) |
+| `src/restaurant_os/tasks/celery_app.py` | `[NEW]` | Background task queue (not in Restaurant OS; added for scalability) |
+| `docker-compose.yml` | `[NEW]` | Multi-container orchestration (not in Restaurant OS) |
 | `pyproject.toml` | `[NEW]` | Modern Python project config (replaces requirements.txt + setup.py) |
 | `agents/supervisor.py` (multi-agent) | `[FUTURE v1.0]` | Multi-agent coordination (deferred; MVP uses single ReAct node) |
 | `tools/review_tools.py` | `[FUTURE v1.0]` | Google Places + Yelp review integration (out of scope for MVP) |
-| `backend/smartscanner/settings.py` | `[DEPRECATED]` | Django config → `core/config.py` (Pydantic) + FastAPI app factory |
+| `backend/restaurant-os/settings.py` | `[DEPRECATED]` | Django config → `core/config.py` (Pydantic) + FastAPI app factory |
 | `backend/scanner/urls.py` | `[DEPRECATED]` | URL routing → `api/v1/routes.py` (FastAPI) |
 
 ---

@@ -208,7 +208,7 @@ class InvoiceRepository:
     ) -> Invoice:
         """Create an Invoice with its LineItems from a scan result dict.
 
-        Accepts the same dict structure that SmartScanner's scanning pipeline
+        Accepts the same dict structure that Restaurant OS's scanning pipeline
         produced: top-level header fields + "items" list.
         """
         invoice_date: datetime | None = None

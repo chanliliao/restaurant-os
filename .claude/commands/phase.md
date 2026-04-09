@@ -1,6 +1,6 @@
-# New Phase — SmartScanner
+# New Phase — Restaurant OS
 
-You are starting a new SmartScanner feature phase. Follow this workflow exactly:
+You are starting a new Restaurant OS feature phase. Follow this workflow exactly:
 
 1. **Read context first** — read `docs/ARCHITECTURE.md` and the most recent plan in `docs/superpowers/plans/` to understand where the project is.
 2. **Ask for the phase name and goal** — if not provided in the user's message, ask: "What is the phase number and what does it build?"

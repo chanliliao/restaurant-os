@@ -67,7 +67,7 @@ class Supplier(Base):
     name (e.g. "abc-foods"). Once created it must not change — it is the lookup
     key for invoice history and memory retrieval.
 
-    Ported concept: SmartScanner's per-supplier directory under data/suppliers/.
+    Ported concept: Restaurant OS's per-supplier directory under data/suppliers/.
     """
 
     __tablename__ = "suppliers"
@@ -89,7 +89,7 @@ class Supplier(Base):
         nullable=False,
     )
     scan_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # JSONB columns mirror SmartScanner's profile.json structure; flexible storage
+    # JSONB columns mirror Restaurant OS's profile.json structure; flexible storage
     # allows new fields without schema migrations.
     latest_values: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, nullable=False
@@ -188,7 +188,7 @@ class LineItem(Base):
 class UserCorrection(Base):
     """A correction a user applied to an extracted invoice field.
 
-    Ports SmartScanner's inline corrections list (stored inside profile.json)
+    Ports Restaurant OS's inline corrections list (stored inside profile.json)
     to a first-class relational table with proper foreign keys and timestamps.
 
     field_path uses the same notation as corrections.py:

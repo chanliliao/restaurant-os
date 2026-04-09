@@ -37,7 +37,7 @@ class ScannerState(TypedDict):
     LangGraph merges the returned dict into the shared state, so upstream
     fields are always available to downstream nodes without explicit passing.
 
-    Compare with SmartScanner's engine.py, which threaded these values through
+    Compare with Restaurant OS's engine.py, which threaded these values through
     function return values and local variables — no explicit state object existed.
     """
 
@@ -75,7 +75,7 @@ def preprocess(state: ScannerState) -> dict[str, Any]:
     """
     Apply image preprocessing before submitting to GLM-OCR.
 
-    Ported from SmartScanner's preprocessing/ module — orientation correction,
+    Ported from Restaurant OS's preprocessing/ module — orientation correction,
     JPEG re-encoding for images > 500 KB, and size validation — now wrapped as
     a discrete graph node so it can be observed and retried independently.
 
@@ -103,7 +103,7 @@ async def ocr(state: ScannerState) -> dict[str, Any]:
     """
     Submit the preprocessed image to GLM-OCR and return raw extracted text.
 
-    Ported from SmartScanner's engine._call_glm_ocr() — rewritten as an async
+    Ported from Restaurant OS's engine._call_glm_ocr() — rewritten as an async
     LangGraph node that stores the raw OCR output in state for the `extract` node.
 
     Populates `raw_ocr_text`.
@@ -243,7 +243,7 @@ def validate(state: ScannerState) -> dict[str, Any]:
     """
     Run math validation on the extracted ScanResult.
 
-    Ported from SmartScanner's scanner/scanning/validator.py — checks that
+    Ported from Restaurant OS's scanner/scanning/validator.py — checks that
     subtotal + tax ≈ total within the tolerance defined in coding-standards.md.
     Auto-corrects line totals and recalculates subtotal/total when arithmetic
     errors are detected.

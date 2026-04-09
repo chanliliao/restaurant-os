@@ -1,6 +1,6 @@
-# Update Docs and Commit — SmartScanner
+# Update Docs and Commit — Restaurant OS
 
-You are finishing a unit of work for SmartScanner and need to update docs and commit. Follow this workflow exactly:
+You are finishing a unit of work for Restaurant OS and need to update docs and commit. Follow this workflow exactly:
 
 1. **Run tests first** — `cd backend && python -m pytest`. Zero failures required before any commit.
 2. **Update CHANGELOG.md** — invoke the `changelog-updater` agent to write an entry to `docs/CHANGELOG.md` before staging.

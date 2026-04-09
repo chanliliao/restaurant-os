@@ -1,4 +1,4 @@
-# Scan Test Skill — SmartScanner
+# Scan Test Skill — Restaurant OS
 
 This skill validates a scan end-to-end through the full pipeline.
 

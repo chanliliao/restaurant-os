@@ -1,4 +1,4 @@
-# SmartScanner — Project Status
+# Restaurant OS — Project Status
 
 _Last updated: 2026-04-09 (Restaurant OS rebrand)_
 
