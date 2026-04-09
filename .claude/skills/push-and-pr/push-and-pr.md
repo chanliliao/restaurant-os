@@ -1,6 +1,6 @@
-# Push and PR Skill — SmartScanner
+# Push and PR Skill — Restaurant OS
 
-This skill runs after `update-docs-and-commit` completes. It pushes the current branch and opens a PR following SmartScanner conventions.
+This skill runs after `update-docs-and-commit` completes. It pushes the current branch and opens a PR following Restaurant OS conventions.
 
 ## Trigger
 

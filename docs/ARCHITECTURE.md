@@ -1,6 +1,6 @@
-# SmartScanner Architecture
+# Restaurant OS Architecture
 
-SmartScanner is an AI-powered invoice scanner for restaurant supply invoices. It extracts structured data from invoice images using a hybrid OCR + vision LLM pipeline, learns from corrections, and improves accuracy over time through a supplier memory system.
+Restaurant OS is an AI-powered invoice scanner for restaurant supply invoices. It extracts structured data from invoice images using a hybrid OCR + vision LLM pipeline, learns from corrections, and improves accuracy over time through a supplier memory system.
 
 ---
 
@@ -321,7 +321,7 @@ backend/
 │       └── <supplier-id>/
 │           ├── profile.json         # {scan_history: [...], common_values: {...}}
 │           └── layout.json          # {header_region: {x,y,w,h}, items_region: {...}, totals_region: {...}}
-└── smartscanner/
+└── restaurant-os/
     ├── settings.py                  # All config; reads from .env via python-dotenv
     └── urls.py                      # Root URL: /api/ → scanner.urls
 ```

@@ -1,6 +1,6 @@
-# Update Docs and Commit Skill — SmartScanner
+# Update Docs and Commit Skill — Restaurant OS
 
-This skill guides a complete docs-first commit workflow for SmartScanner: tests → docs → commit. No push.
+This skill guides a complete docs-first commit workflow for Restaurant OS: tests → docs → commit. No push.
 
 ## Trigger
 

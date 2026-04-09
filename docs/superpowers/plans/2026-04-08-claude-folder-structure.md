@@ -209,7 +209,7 @@ pytest tests/test_scanning.py::TestClassName::test_function_name
 pytest -k "test_ocr_fast_path"
 ```
 
-`pytest.ini` sets `DJANGO_SETTINGS_MODULE = smartscanner.settings` so no env var is needed.
+`pytest.ini` sets `DJANGO_SETTINGS_MODULE = restaurant-os.settings` so no env var is needed.
 
 ## Environment
 
@@ -221,7 +221,7 @@ Copy `.env` variables into `backend/.env`. Required keys:
 
 ## Architecture Overview
 
-SmartScanner is an AI invoice scanner for restaurant supply invoices. The backend is a Django REST API; there is no active frontend (removed after phase 22). All image processing, OCR, and LLM calls happen server-side via a hybrid GLM-OCR + GLM-4.6V-Flash pipeline with a JSON-file memory system that improves accuracy over time.
+Restaurant OS is an AI invoice scanner for restaurant supply invoices. The backend is a Django REST API; there is no active frontend (removed after phase 22). All image processing, OCR, and LLM calls happen server-side via a hybrid GLM-OCR + GLM-4.6V-Flash pipeline with a JSON-file memory system that improves accuracy over time.
 
 See `docs/ARCHITECTURE.md` for the full system overview, data flow, component breakdown, and API reference.
 
@@ -272,9 +272,9 @@ git commit -m "chore: extract CLAUDE.md rules into .claude/rules/ files"
 - [ ] **Step 1: Create phase.md**
 
 ```markdown
-# New Phase — SmartScanner
+# New Phase — Restaurant OS
 
-You are starting a new SmartScanner feature phase. Follow this workflow exactly:
+You are starting a new Restaurant OS feature phase. Follow this workflow exactly:
 
 1. **Read context first** — read `docs/ARCHITECTURE.md` and the most recent plan in `docs/superpowers/plans/` to understand where the project is.
 2. **Ask for the phase name and goal** — if not provided in the user's message, ask: "What is the phase number and what does it build?"
@@ -292,7 +292,7 @@ You are starting a new SmartScanner feature phase. Follow this workflow exactly:
 - [ ] **Step 2: Create scan.md**
 
 ```markdown
-# Scan Test — SmartScanner
+# Scan Test — Restaurant OS
 
 You are running an end-to-end scan test. Follow this workflow:
 
@@ -309,7 +309,7 @@ You are running an end-to-end scan test. Follow this workflow:
 - [ ] **Step 3: Create debug.md**
 
 ```markdown
-# Debug Scan — SmartScanner
+# Debug Scan — Restaurant OS
 
 You are debugging a bad scan result. Follow this systematic workflow:
 
@@ -350,7 +350,7 @@ Expected: `debug.md  phase.md  scan.md`
 ```markdown
 # Activate Virtual Environment
 
-Run the following to activate the SmartScanner backend virtual environment and confirm it is working:
+Run the following to activate the Restaurant OS backend virtual environment and confirm it is working:
 
 ```bash
 source backend/venv/Scripts/activate && python --version && python -c "import django; print('Django', django.__version__)"
@@ -369,7 +369,7 @@ cd backend && python -m venv venv && source venv/Scripts/activate && pip install
 ```markdown
 # Run Tests
 
-Run the full SmartScanner test suite:
+Run the full Restaurant OS test suite:
 
 ```bash
 cd backend && python -m pytest -v 2>&1
@@ -381,7 +381,7 @@ cd backend && python -m pytest -v 2>&1
 - To run a single test: `pytest tests/test_scanning.py::TestClass::test_name -v`
 - To filter by keyword: `pytest -k "test_ocr_fast_path" -v`
 
-`pytest.ini` sets `DJANGO_SETTINGS_MODULE = smartscanner.settings` — no env var needed.
+`pytest.ini` sets `DJANGO_SETTINGS_MODULE = restaurant-os.settings` — no env var needed.
 ```
 
 - [ ] **Step 3: Create check-logs.md**
@@ -402,7 +402,7 @@ To check what GLM API calls were made during a scan, grep the running server out
 grep -i "glm\|ocr\|vision\|scan" backend/logs/*.log 2>/dev/null || echo "No log files found — check server stdout"
 ```
 
-If you need structured logging, `logging.getLogger(__name__)` is used throughout `backend/scanner/`. Log level is set in `backend/smartscanner/settings.py`.
+If you need structured logging, `logging.getLogger(__name__)` is used throughout `backend/scanner/`. Log level is set in `backend/restaurant-os/settings.py`.
 ```
 
 - [ ] **Step 4: Verify all 6 command files exist**
@@ -430,9 +430,9 @@ git commit -m "chore: add .claude/commands/ with skill-triggering and utility sl
 - [ ] **Step 1: Create the skill file**
 
 ```markdown
-# New Phase Skill — SmartScanner
+# New Phase Skill — Restaurant OS
 
-This skill guides a complete SmartScanner feature phase from inception to merged PR.
+This skill guides a complete Restaurant OS feature phase from inception to merged PR.
 
 ## Trigger
 
@@ -467,7 +467,7 @@ Invoke `superpowers:writing-plans` to produce a step-by-step plan. Save to:
 ### Step 6: Implement with TDD
 Invoke `superpowers:test-driven-development`.
 
-Key rules for SmartScanner tests:
+Key rules for Restaurant OS tests:
 - Mock all external calls: `unittest.mock.patch('scanner.scanning.engine._call_glm_ocr')` and `unittest.mock.patch('scanner.scanning.engine._call_glm_vision')`
 - Use `backend/tests/integration_helpers.py` for shared fixtures
 - Run after each test: `cd backend && pytest -v`
@@ -509,7 +509,7 @@ Expected: `new-phase.md`
 - [ ] **Step 1: Create the skill file**
 
 ```markdown
-# Scan Test Skill — SmartScanner
+# Scan Test Skill — Restaurant OS
 
 This skill validates a scan end-to-end through the full pipeline.
 
@@ -594,7 +594,7 @@ Expected: `scan-test.md`
 - [ ] **Step 1: Create the skill file**
 
 ```markdown
-# Debug Scan Skill — SmartScanner
+# Debug Scan Skill — Restaurant OS
 
 Systematic debugging for bad scan results using the scientific method.
 

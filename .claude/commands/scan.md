@@ -1,4 +1,4 @@
-# Scan Test — SmartScanner
+# Scan Test — Restaurant OS
 
 You are running an end-to-end scan test. Follow this workflow:
 

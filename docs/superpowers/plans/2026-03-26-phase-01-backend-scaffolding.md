@@ -17,7 +17,7 @@ backend/
 ├── manage.py
 ├── requirements.txt
 ├── .env
-├── smartscanner/
+├── restaurant-os/
 │   ├── __init__.py
 │   ├── settings.py
 │   ├── urls.py
@@ -98,10 +98,10 @@ git commit -m "feat(phase-01): add backend requirements.txt with all dependencie
 
 **Files:**
 - Create: `backend/manage.py`
-- Create: `backend/smartscanner/__init__.py`
-- Create: `backend/smartscanner/settings.py`
-- Create: `backend/smartscanner/urls.py`
-- Create: `backend/smartscanner/wsgi.py`
+- Create: `backend/restaurant-os/__init__.py`
+- Create: `backend/restaurant-os/settings.py`
+- Create: `backend/restaurant-os/urls.py`
+- Create: `backend/restaurant-os/wsgi.py`
 - Create: `backend/scanner/__init__.py`
 - Create: `backend/scanner/apps.py`
 
@@ -109,9 +109,9 @@ git commit -m "feat(phase-01): add backend requirements.txt with all dependencie
 
 Run from the `backend/` directory:
 ```bash
-cd backend && django-admin startproject smartscanner .
+cd backend && django-admin startproject restaurant-os .
 ```
-Expected: Creates `manage.py` and `smartscanner/` directory with settings, urls, wsgi.
+Expected: Creates `manage.py` and `restaurant-os/` directory with settings, urls, wsgi.
 
 - [ ] **Step 2: Create scanner app**
 
@@ -128,7 +128,7 @@ Expected: "Starting development server at http://0.0.0.0:8000/" with no errors. 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add backend/manage.py backend/smartscanner/ backend/scanner/
+git add backend/manage.py backend/restaurant-os/ backend/scanner/
 git commit -m "feat(phase-01): create Django project and scanner app"
 ```
 
@@ -138,7 +138,7 @@ git commit -m "feat(phase-01): create Django project and scanner app"
 
 **Files:**
 - Create: `backend/.env`
-- Modify: `backend/smartscanner/settings.py`
+- Modify: `backend/restaurant-os/settings.py`
 
 - [ ] **Step 1: Create .env file**
 
@@ -152,7 +152,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:5173
 
 - [ ] **Step 2: Update settings.py**
 
-Replace the entire content of `backend/smartscanner/settings.py` with:
+Replace the entire content of `backend/restaurant-os/settings.py` with:
 
 ```python
 import os
@@ -195,7 +195,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "smartscanner.urls"
+ROOT_URLCONF = "restaurant-os.urls"
 
 TEMPLATES = [
     {
@@ -213,7 +213,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "smartscanner.wsgi.application"
+WSGI_APPLICATION = "restaurant-os.wsgi.application"
 
 DATABASES = {
     "default": {
@@ -271,7 +271,7 @@ Expected: Server starts without errors. Stop with Ctrl+C.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add backend/.env backend/smartscanner/settings.py
+git add backend/.env backend/restaurant-os/settings.py
 git commit -m "feat(phase-01): configure settings with DRF, CORS, env loading"
 ```
 
@@ -484,7 +484,7 @@ git commit -m "feat(phase-01): create data directory structure with initial JSON
 `backend/pytest.ini`:
 ```ini
 [pytest]
-DJANGO_SETTINGS_MODULE = smartscanner.settings
+DJANGO_SETTINGS_MODULE = restaurant-os.settings
 python_files = tests/test_*.py
 python_classes = Test*
 python_functions = test_*
@@ -603,7 +603,7 @@ git commit -m "test(phase-01): add failing tests for scan API endpoint"
 - Create: `backend/scanner/urls.py`
 - Create: `backend/scanner/serializers.py`
 - Modify: `backend/scanner/views.py`
-- Modify: `backend/smartscanner/urls.py`
+- Modify: `backend/restaurant-os/urls.py`
 
 - [ ] **Step 1: Create scanner/serializers.py**
 
@@ -696,7 +696,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 4: Update smartscanner/urls.py**
+- [ ] **Step 4: Update restaurant-os/urls.py**
 
 ```python
 from django.contrib import admin
@@ -725,7 +725,7 @@ Expected: Returns JSON with placeholder data and `"mode": "normal"`.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/scanner/serializers.py backend/scanner/views.py backend/scanner/urls.py backend/smartscanner/urls.py
+git add backend/scanner/serializers.py backend/scanner/views.py backend/scanner/urls.py backend/restaurant-os/urls.py
 git commit -m "feat(phase-01): implement placeholder scan API endpoint"
 ```
 
@@ -771,7 +771,7 @@ git push origin master
 
 - [ ] **Step 2: Update the implementation tracker in the spec**
 
-In `docs/superpowers/specs/2026-03-26-smart-scanner-design.md`, change:
+In `docs/superpowers/specs/2026-03-26-restaurant-os-design.md`, change:
 ```
 Phase 01:  [ ] Not started — Backend scaffolding (Django REST)
 ```
@@ -789,7 +789,7 @@ Phase 01:  [x] Complete — Backend scaffolding (Django REST)
 - [ ] **Step 3: Commit and push tracker update**
 
 ```bash
-git add docs/superpowers/specs/2026-03-26-smart-scanner-design.md
+git add docs/superpowers/specs/2026-03-26-restaurant-os-design.md
 git commit -m "docs(phase-01): update implementation tracker — phase 01 complete"
 git push origin master
 ```

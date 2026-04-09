@@ -1,4 +1,4 @@
-# Retro — SmartScanner
+# Retro — Restaurant OS
 
 Run a development retrospective. The retro-agent will audit the current workflow, check CLAUDE.md accuracy, identify gaps in the skill/command/agent coverage, and scan for project health signals.
 

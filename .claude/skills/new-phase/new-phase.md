@@ -1,6 +1,6 @@
-# New Phase Skill — SmartScanner
+# New Phase Skill — Restaurant OS
 
-This skill guides a complete SmartScanner feature phase from inception to merged PR.
+This skill guides a complete Restaurant OS feature phase from inception to merged PR.
 
 ## Trigger
 
@@ -41,7 +41,7 @@ Do not begin implementation until the plan file is saved and visible on disk.
 ### Step 6: Implement with TDD
 Invoke `superpowers:test-driven-development`.
 
-Key rules for SmartScanner tests:
+Key rules for Restaurant OS tests:
 - Mock all external calls: `unittest.mock.patch('scanner.scanning.engine._call_glm_ocr')` and `unittest.mock.patch('scanner.scanning.engine._call_glm_vision')`
 - Use `backend/tests/integration_helpers.py` for shared fixtures
 - Run after each test: `cd backend && python -m pytest -v`

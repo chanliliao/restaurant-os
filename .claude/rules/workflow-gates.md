@@ -14,7 +14,7 @@
 
 ## Commits
 
-- Use SmartScanner-specific prefix format: `feat(phase-NN):`, `fix(component):` when referencing a phase or component.
+- Use Restaurant OS-specific prefix format: `feat(phase-NN):`, `fix(component):` when referencing a phase or component.
 - **No committing** `backend/venv/`, `backend/data/` (runtime data), `*.pyc`, or `.env`. These are gitignored; keep them there.
 - **Before any `git add`:** Run `git status` and verify no files under `backend/data/` appear as modified or tracked. If a `backend/data/` file is tracked, remove it with `git rm --cached <file>` before staging anything else.
 

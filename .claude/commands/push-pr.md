@@ -1,4 +1,4 @@
-# Push and PR — SmartScanner
+# Push and PR — Restaurant OS
 
 Push the current branch and open a PR. Run this after `update-docs-and-commit` completes.
 

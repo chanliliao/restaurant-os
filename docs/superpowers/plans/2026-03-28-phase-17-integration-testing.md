@@ -183,14 +183,14 @@ def make_claude_response(
 
 - [ ] **Step 2: Verify the helper module imports cleanly**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe -c "from tests.integration_helpers import make_receipt_image_bytes, make_claude_response; print('OK')"`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe -c "from tests.integration_helpers import make_receipt_image_bytes, make_claude_response; print('OK')"`
 
 Expected output: `OK`
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/integration_helpers.py
 git commit -m "test: add integration test helpers — synthetic images + mock Claude response builder"
 ```
@@ -360,20 +360,20 @@ class TestCleanReceiptPipeline(TestCase):
 
 - [ ] **Step 2: Run the test to verify it fails (no test_integration module yet fails to import, which counts)**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestCleanReceiptPipeline -v2 2>&1 | head -30`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestCleanReceiptPipeline -v2 2>&1 | head -30`
 
 Expected: Module loads, tests run. Since `scan_invoice` calls real `_call_claude` without the mock if something is wrong, confirm they PASS at this point — the mocks are fully wired.
 
 - [ ] **Step 3: Run full test to verify all Task 2 tests pass**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestCleanReceiptPipeline -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestCleanReceiptPipeline -v2`
 
 Expected: 8 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 2 — clean receipt full pipeline"
 ```
@@ -490,14 +490,14 @@ class TestMathValidation(TestCase):
 
 - [ ] **Step 2: Run Task 3 tests**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestMathValidation -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestMathValidation -v2`
 
 Expected: 5 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 3 — math validation auto-correct"
 ```
@@ -623,14 +623,14 @@ class TestTiebreakerTriggered(TestCase):
 
 - [ ] **Step 2: Run Task 4 tests**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestTiebreakerTriggered -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestTiebreakerTriggered -v2`
 
 Expected: 5 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 4 — tiebreaker triggered on scan disagreement"
 ```
@@ -762,14 +762,14 @@ class TestInferenceFillsMissingFields(TestCase):
 
 - [ ] **Step 2: Run Task 5 tests**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestInferenceFillsMissingFields -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestInferenceFillsMissingFields -v2`
 
 Expected: 3 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 5 — inference fills missing fields from supplier memory"
 ```
@@ -898,14 +898,14 @@ class TestModeComparison(TestCase):
 
 - [ ] **Step 2: Run Task 6 tests**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestModeComparison -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestModeComparison -v2`
 
 Expected: 6 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 6 — mode comparison verifies Light/Normal/Heavy model selection"
 ```
@@ -1110,14 +1110,14 @@ class TestFullAPIFlow(TestCase):
 
 - [ ] **Step 2: Run Task 7 tests**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestFullAPIFlow -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration.TestFullAPIFlow -v2`
 
 Expected: 8 tests pass, 0 failures, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py
 git commit -m "test: integration test Task 7 — full API flow scan → confirm → stats"
 ```
@@ -1132,20 +1132,20 @@ Run the new integration suite alone, then the full 364+N test suite to confirm n
 
 - [ ] **Step 1: Run the complete integration test file**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration -v2`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests.test_integration -v2`
 
 Expected: All 35 tests pass (8 + 5 + 5 + 3 + 6 + 8), 0 failures, 0 errors.
 
 - [ ] **Step 2: Run the full test suite**
 
-Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests -v2 2>&1 | tail -20`
+Run: `cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend && /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test tests -v2 2>&1 | tail -20`
 
 Expected: All tests pass. Count should be 364 + 35 = 399 (or similar, depending on prior test count).
 
 - [ ] **Step 3: Final commit**
 
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS
 git add backend/tests/test_integration.py backend/tests/integration_helpers.py
 git commit -m "test: Phase 17 complete — integration test suite with 35 tests across 6 pipeline scenarios"
 ```

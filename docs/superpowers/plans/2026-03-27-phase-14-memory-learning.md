@@ -458,7 +458,7 @@ def apply_corrections(scan_result: dict, corrections: list[dict]) -> dict:
 Add imports and exports for `categorize_error`, `categorize_corrections`, and `apply_corrections`:
 
 ```python
-"""SmartScanner memory system for supplier and industry data."""
+"""Restaurant OS memory system for supplier and industry data."""
 
 from .categorizer import categorize_corrections, categorize_error
 from .corrections import apply_corrections

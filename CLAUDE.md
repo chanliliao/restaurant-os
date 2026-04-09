@@ -23,7 +23,7 @@ pytest tests/test_scanning.py::TestClassName::test_function_name
 pytest -k "test_ocr_fast_path"
 ```
 
-`pytest.ini` sets `DJANGO_SETTINGS_MODULE = smartscanner.settings` so no env var is needed.
+`pytest.ini` sets `DJANGO_SETTINGS_MODULE = restaurant-os.settings` so no env var is needed.
 
 ## Environment
 
@@ -35,7 +35,7 @@ Copy `.env` variables into `backend/.env`. Required keys:
 
 ## Architecture Overview
 
-SmartScanner is an AI invoice scanner for restaurant supply invoices. The backend is a Django REST API; there is no active frontend (removed after phase 22). All image processing, OCR, and LLM calls happen server-side via a hybrid GLM-OCR + GLM-4.6V-Flash pipeline with a JSON-file memory system that improves accuracy over time.
+Restaurant OS is an AI invoice scanner for restaurant supply invoices. The backend is a Django REST API; there is no active frontend (removed after phase 22). All image processing, OCR, and LLM calls happen server-side via a hybrid GLM-OCR + GLM-4.6V-Flash pipeline with a JSON-file memory system that improves accuracy over time.
 
 See `docs/ARCHITECTURE.md` for the full system overview, data flow, component breakdown, and API reference.
 

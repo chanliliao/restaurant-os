@@ -1,0 +1,99 @@
+version: '1.0'
+description: >
+  Invoice extraction prompt. Instructs GLM-4-Flash to extract structured invoice data
+  from OCR text and return a JSON object with confidence scores and inference sources.
+role: user
+content: |
+  ## Task
+  Extract structured data from the invoice OCR text below.
+  For each field, indicate whether you could clearly read it:
+  - "readable": true  — you can see and read the value clearly
+  - "readable": false — the value is blurry, obscured, ambiguous, or you had to guess
+
+  Fields marked "readable": false will be sent back for a second verification pass.
+  Be honest — marking a guess as readable defeats the purpose.
+
+  ## OCR-Extracted Data (Pre-Parsed)
+  The following fields were extracted from the invoice via GLM-OCR layout parser.
+  Each field has a confidence score. Validate these, correct errors, and fill in gaps.
+
+  {ocr_data_json}
+
+  ## Raw OCR Text
+  Below is the full raw text from GLM-OCR. Use it as a cross-reference.
+
+  {ocr_text}
+
+  {supplier_hints_section}
+
+  ## How to Extract
+
+  ### Step 1: Read the header
+  - Find the supplier name, invoice number, and date.
+  - Read the invoice number character by character. Invoice numbers often start
+    with a letter (B, A, C, S, R, etc.). Common misreads: B↔8, l↔1, O↔0, S↔5.
+
+  ### Step 2: Read the line items
+  - Go row by row through the items table.
+  - For each row, read: item name, quantity, unit, unit price, and line total.
+  - If a cell is empty or unreadable, use null — do NOT invent a number.
+  - "unit" means unit of measure ONLY (e.g. CS, EA, BTL, GAL, LB, OZ, CAN).
+    Do NOT put item codes, UPC codes, or slot numbers in "unit".
+
+  ### Step 3: Read the totals
+  - Find subtotal, tax, and grand total.
+  - Cross-check: do the line totals add up to the subtotal?
+  - Cross-check: does subtotal + tax = total?
+
+  ### Step 4: Self-check
+  - If a number seems implausible, double-check it.
+  - If uncertain about ANY value, set "readable": false for that field.
+
+  ## Beverage Invoice Context
+  - Beverage cases use the format "X/Y/Zml" = X packs of Y units per case.
+  - BOTTLE DEPOSIT quantity = total individual bottles across all cases.
+
+  ## Required JSON Output Schema
+  {
+      "supplier": "string",
+      "date": "string — YYYY-MM-DD format",
+      "invoice_number": "string",
+      "items": [
+          {
+              "name": "string",
+              "quantity": 0,
+              "unit": "string",
+              "unit_price": 0.00,
+              "total": 0.00,
+              "confidence": 0,
+              "readable": true
+          }
+      ],
+      "subtotal": 0.00,
+      "tax": 0.00,
+      "total": 0.00,
+      "confidence": {
+          "supplier": 0,
+          "date": 0,
+          "invoice_number": 0,
+          "subtotal": 0,
+          "tax": 0,
+          "total": 0
+      },
+      "readable": {
+          "supplier": true,
+          "date": true,
+          "invoice_number": true,
+          "subtotal": true,
+          "tax": true,
+          "total": true
+      },
+      "inference_sources": {
+          "supplier": "scanned|inferred|missing",
+          "date": "scanned|inferred|missing",
+          "invoice_number": "scanned|inferred|missing",
+          "subtotal": "scanned|inferred|missing",
+          "tax": "scanned|inferred|missing",
+          "total": "scanned|inferred|missing"
+      }
+  }

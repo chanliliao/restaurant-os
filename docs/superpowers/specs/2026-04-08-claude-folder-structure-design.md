@@ -1,17 +1,17 @@
-# .claude Folder Structure — SmartScanner
+# .claude Folder Structure — Restaurant OS
 
 **Date:** 2026-04-08
 **Status:** Approved
 
 ## Context
 
-SmartScanner's `.claude/` project folder currently contains only a `settings.local.json` with a few bash permissions. All rules, constraints, and workflow guidance live inline in `CLAUDE.md`, making it hard to maintain as the project grows. This design organizes the `.claude/` folder into a structured system: rules extracted into dedicated files, custom slash commands for common workflows, project-specific skills that auto-invoke repeatable workflows, and an agents folder (empty for now, populated on demand).
+Restaurant OS's `.claude/` project folder currently contains only a `settings.local.json` with a few bash permissions. All rules, constraints, and workflow guidance live inline in `CLAUDE.md`, making it hard to maintain as the project grows. This design organizes the `.claude/` folder into a structured system: rules extracted into dedicated files, custom slash commands for common workflows, project-specific skills that auto-invoke repeatable workflows, and an agents folder (empty for now, populated on demand).
 
 ## Goal
 
 - Extract CLAUDE.md rules into `.claude/rules/` files, keeping CLAUDE.md as a thin index
 - Add custom slash commands for skill-triggering and utility operations
-- Add project-specific skills for the three core SmartScanner workflows
+- Add project-specific skills for the three core Restaurant OS workflows
 - Create an empty `agents/` folder ready for future population
 
 ---
@@ -105,7 +105,7 @@ Sourced from CLAUDE.md section: Repo Etiquette.
 ## Skills
 
 ### `new-phase` (triggered by `/phase`)
-Auto-invokes for any new SmartScanner feature phase:
+Auto-invokes for any new Restaurant OS feature phase:
 1. Read `docs/ARCHITECTURE.md` + last phase plan for context
 2. Research the feature area (relevant files, existing patterns)
 3. Invoke brainstorming → writing-plans for spec + plan

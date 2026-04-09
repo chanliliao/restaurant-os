@@ -1,4 +1,4 @@
-"""SmartScanner memory system for supplier and industry data."""
+"""Restaurant OS memory system for supplier and industry data."""
 
 from .categorizer import categorize_corrections, categorize_error
 from .corrections import apply_corrections

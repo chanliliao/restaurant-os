@@ -18,7 +18,7 @@
 
 **Test commands:**
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend
 /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test scanner.tracking.test_accuracy -v2
 ```
 
@@ -606,7 +606,7 @@ urlpatterns = [
 
 **Verification:** Run Task 5 tests, all 3 pass. Then run full backend suite:
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/backend
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/backend
 /c/Users/cliao/AppData/Local/Programs/Python/Python313/python.exe manage.py test scanner -v2
 ```
 
@@ -1363,7 +1363,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1 className="app__title">SmartScanner</h1>
+        <h1 className="app__title">Restaurant OS</h1>
         <p className="app__subtitle">AI-powered restaurant invoice scanner</p>
         <button
           type="button"
@@ -1493,7 +1493,7 @@ Also ensure `app__header` has `position: relative`:
 
 **Verification:**
 ```bash
-cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/SmartScanner/frontend
+cd /c/Users/cliao/Desktop/Coding/Claude\ Projects/Restaurant OS/frontend
 npx tsc --noEmit
 ```
 
