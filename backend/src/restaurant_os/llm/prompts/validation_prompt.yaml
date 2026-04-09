@@ -1,0 +1,70 @@
+version: '1.0'
+description: >
+  Math validation and verification prompt. Used in the second verification pass
+  when the first extraction produced uncertain fields.
+role: user
+content: |
+  ## Second Verification Pass
+
+  A first extraction pass already ran on this invoice, but some values could not
+  be read clearly. Your job is to focus specifically on the uncertain values and
+  either confirm or correct them.
+
+  ## First Pass Result
+  {first_pass_json}
+
+  ## What Needs Verification
+  {uncertain_fields_section}
+  {uncertain_items_section}
+
+  ## Instructions
+  1. Look at the uncertain fields listed above.
+  2. For each uncertain field, try to determine the correct value.
+  3. If you can now determine it clearly, provide the correct value with higher confidence.
+  4. If you STILL cannot determine it, keep it as null and set confidence to 0.
+     This is perfectly acceptable — some values are genuinely unreadable.
+  5. Do NOT change values that were already marked as clearly readable in the first pass
+     unless you spot an obvious error.
+  6. Cross-check your corrections: do line totals still make mathematical sense?
+     - subtotal = sum of all line totals
+     - total = subtotal + tax
+
+  ## Rules
+  - Use null for values you still cannot determine. Do NOT guess.
+  - Respond ONLY with the complete corrected JSON — same schema as the first pass.
+
+  ## Required JSON Output Schema
+  {
+      "supplier": "string",
+      "date": "string — YYYY-MM-DD format",
+      "invoice_number": "string",
+      "items": [
+          {
+              "name": "string",
+              "quantity": 0,
+              "unit": "string",
+              "unit_price": 0.00,
+              "total": 0.00,
+              "confidence": 0
+          }
+      ],
+      "subtotal": 0.00,
+      "tax": 0.00,
+      "total": 0.00,
+      "confidence": {
+          "supplier": 0,
+          "date": 0,
+          "invoice_number": 0,
+          "subtotal": 0,
+          "tax": 0,
+          "total": 0
+      },
+      "inference_sources": {
+          "supplier": "scanned|inferred|missing",
+          "date": "scanned|inferred|missing",
+          "invoice_number": "scanned|inferred|missing",
+          "subtotal": "scanned|inferred|missing",
+          "tax": "scanned|inferred|missing",
+          "total": "scanned|inferred|missing"
+      }
+  }

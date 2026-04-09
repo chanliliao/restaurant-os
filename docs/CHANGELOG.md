@@ -4,6 +4,18 @@ All notable changes to SmartScanner are documented here, organized by phase and 
 
 ---
 
+## [Tooling] — 2026-04-09 — PlateMind → Restaurant OS Rebrand
+
+### Changed
+- Renamed Python package from `platemind` to `restaurant_os`: `backend/src/platemind/` directory moved to `backend/src/restaurant_os/`; all internal imports updated accordingly
+- FastAPI app title updated from "PlateMind" to "Restaurant OS"
+- All text references in `docs/PRD.md`, `docs/TRD.md`, and `docs/analysis/` updated to use "Restaurant OS"
+- All `.claude/` skill and command files updated to reference the new name
+
+No logic changes — pure rename/rebrand on branch `chore/claude-folder-structure`.
+
+---
+
 ## [Tooling] — 2026-04-08 — Claude Folder Structure Hardening
 
 ### Added
